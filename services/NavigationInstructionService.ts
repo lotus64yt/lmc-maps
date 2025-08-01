@@ -99,9 +99,7 @@ export class NavigationInstructionService {
 
     // PRIORITÉ 1: Utiliser le modifier OSRM (le plus fiable)
     const osrmModifier = (step as any).osrmModifier;
-    if (osrmModifier) {
-      console.log('🔧 Debug - Utilisation du modifier OSRM:', osrmModifier);
-      const maneuverType = this.convertOSRMModifierToType(step.maneuver, osrmModifier);
+    if (osrmModifier) {const maneuverType = this.convertOSRMModifierToType(step.maneuver, osrmModifier);
       return this.generateInstructionFromManeuver(
         maneuverType, 
         step.streetName, 
@@ -112,9 +110,7 @@ export class NavigationInstructionService {
     }
 
     // PRIORITÉ 2: Utiliser le manœuvre original
-    if (step.maneuver && step.maneuver !== 'straight' && step.maneuver !== 'continue') {
-      console.log('🔧 Debug - Utilisation du manœuvre original:', step.maneuver);
-      const originalType = this.convertOriginalManeuverToType(step.maneuver);
+    if (step.maneuver && step.maneuver !== 'straight' && step.maneuver !== 'continue') {const originalType = this.convertOriginalManeuverToType(step.maneuver);
       if (originalType !== 'straight') {
         return this.generateInstructionFromManeuver(
           originalType, 
@@ -234,10 +230,7 @@ export class NavigationInstructionService {
     
     // Normaliser l'angle entre -180 et 180
     while (angle > 180) angle -= 360;
-    while (angle < -180) angle += 360;
-
-    console.log('🔧 Debug - Angle calculé amélioré:', angle);
-    return angle;
+    while (angle < -180) angle += 360;return angle;
   }
 
   // Normaliser un vecteur

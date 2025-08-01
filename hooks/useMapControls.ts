@@ -75,10 +75,7 @@ export function useMapControls() {
           // À l'intersection : vue plus droite pour mieux voir
           zoom = 18;
           pitch = 30;
-        }
-        
-        console.log(`🚗 Driving mode: ${distanceToNextStep}m to next step - pitch: ${pitch}°, zoom: ${zoom}`);
-      } else {
+        }} else {
         // Pas d'étape suivante connue : paramètres par défaut
         zoom = 16;
         pitch = 45;
@@ -92,9 +89,7 @@ export function useMapControls() {
       // Si on approche d'une intersection (moins de 50m)
       if (distanceToNextStep && distanceToNextStep < 50) {
         pitch = 0; // Remettre la caméra droite
-        zoom = Math.max(19, 22 - (distanceToNextStep / 10)); // Zoomer au fur et à mesure qu'on approche
-        console.log(`🚶 Approaching intersection: ${distanceToNextStep}m, adjusting camera - pitch: ${pitch}, zoom: ${zoom}`);
-      }
+        zoom = Math.max(19, 22 - (distanceToNextStep / 10)); // Zoomer au fur et à mesure qu'on approche}
     }
 
     // Mettre à jour les valeurs dans la config
@@ -116,23 +111,17 @@ export function useMapControls() {
   // Fonction pour démarrer la navigation piétonne
   const startWalkingNavigation = useCallback(() => {
     setIsNavigating(true);
-    setNavigationMode("walking");
-    console.log('🚶 Started walking navigation mode');
-  }, []);
+    setNavigationMode("walking");}, []);
 
   // Fonction pour démarrer la navigation en voiture
   const startDrivingNavigation = useCallback(() => {
     setIsNavigating(true);
-    setNavigationMode("driving");
-    console.log('🚗 Started driving navigation mode');
-  }, []);
+    setNavigationMode("driving");}, []);
 
   // Fonction pour démarrer la navigation selon le mode de transport
   const startNavigationForMode = useCallback((mode: "driving" | "walking") => {
     setIsNavigating(true);
-    setNavigationMode(mode);
-    console.log(`🚀 Started ${mode} navigation mode`);
-  }, []);
+    setNavigationMode(mode);}, []);
 
   // Fonction pour arrêter la navigation
   const stopNavigation = useCallback(() => {
@@ -142,9 +131,7 @@ export function useMapControls() {
       pitch: 0,
       zoomLevel: 16,
       animationDuration: 1000
-    });
-    console.log('🛑 Stopped navigation, camera reset');
-  }, [setCameraConfig]);
+    });}, [setCameraConfig]);
 
   const recenterMap = async (location: Location.LocationObjectCoords) => {
     if (location) {
@@ -161,13 +148,8 @@ export function useMapControls() {
           );
           
           animateToLocation(location.latitude, location.longitude, zoom);
-          lastFollowPosition.current = null; // Réinitialiser pour permettre le suivi immédiat
-          
-          console.log('✅ Follow mode activated, centering on user:', location);
-        } else {
-          lastFollowPosition.current = null; // Réinitialiser quand on désactive aussi
-          console.log('🚫 Follow mode deactivated');
-        }
+          lastFollowPosition.current = null; // Réinitialiser pour permettre le suivi immédiat} else {
+          lastFollowPosition.current = null; // Réinitialiser quand on désactive aussi}
         
       } catch (error) {
         console.error('❌ Error toggling follow mode:', error);
@@ -204,18 +186,14 @@ export function useMapControls() {
       setCameraConfig({
         centerCoordinate: [location.longitude, location.latitude],
         animationDuration: 1000
-      }, false, 'user-follow');
-      console.log('🎯 Following user location:', location);
-    }
+      }, false, 'user-follow');}
   }, [isFollowingUser]);
 
   // Fonction pour désactiver temporairement le mode suivi sans interaction utilisateur
   const disableFollowModeTemporarily = () => {
     if (isFollowingUser) {
       setIsFollowingUser(false);
-      lastFollowPosition.current = null;
-      console.log('🚫 Follow mode temporarily disabled for route calculation');
-      return true; // Retourner true si le mode était actif
+      lastFollowPosition.current = null;return true; // Retourner true si le mode était actif
     }
     return false; // Retourner false si le mode n'était pas actif
   };
@@ -223,37 +201,27 @@ export function useMapControls() {
   // Fonction pour réactiver le mode suivi
   const reactivateFollowMode = () => {
     setIsFollowingUser(true);
-    lastFollowPosition.current = null; // Réinitialiser pour permettre le suivi immédiat
-    console.log('✅ Follow mode reactivated');
-  };
+    lastFollowPosition.current = null; // Réinitialiser pour permettre le suivi immédiat};
 
   // Fonction appelée quand l'utilisateur bouge manuellement la carte
   const handleMapPanDrag = () => {
     if (isFollowingUser) {
       setIsFollowingUser(false);
-      lastFollowPosition.current = null; // Réinitialiser la position de référence
-      console.log('🚫 User panned map, disabling follow mode');
-    }
+      lastFollowPosition.current = null; // Réinitialiser la position de référence}
   };
 
   const animateToCoordinate = (coordinate: {
     latitude: number;
     longitude: number;
   }, zoomLevel: number = 15, pitch?: number) => {
-    animateToLocation(coordinate.latitude, coordinate.longitude, zoomLevel, 500, pitch);
-    
-    console.log('Animating to coordinate:', coordinate, 'zoom:', zoomLevel);
-  };
+    animateToLocation(coordinate.latitude, coordinate.longitude, zoomLevel, 500, pitch);};
 
   // Version verrouillée pour les animations critiques (parking, etc.)
   const animateToCoordinateLocked = (coordinate: {
     latitude: number;
     longitude: number;
   }, zoomLevel: number = 15, pitch?: number) => {
-    animateToLocationLocked(coordinate.latitude, coordinate.longitude, zoomLevel, 1000, pitch);
-    
-    console.log('🔒 Locked animation to coordinate:', coordinate, 'zoom:', zoomLevel, 'pitch:', pitch);
-  };
+    animateToLocationLocked(coordinate.latitude, coordinate.longitude, zoomLevel, 1000, pitch);};
 
   // Nouvelle fonction pour ajuster la vue à un trajet complet
   const fitToRoute = (
@@ -274,9 +242,7 @@ export function useMapControls() {
       viewportPadding = { ...currentViewportPadding, bottom: 400 }; // 300px pour la hauteur approximative du RouteDrawer
     }
     
-    fitToCoordinates(coordinates, 80, 1500, viewportPadding); // Plus de padding et animation plus lente pour les routes
-    console.log('Fitting map to route with', coordinates.length, 'coordinates', drawerVisible ? 'with drawer padding' : '');
-  };
+    fitToCoordinates(coordinates, 80, 1500, viewportPadding); // Plus de padding et animation plus lente pour les routes};
 
   // Fonction pour définir le padding du drawer
   const setDrawerPadding = useCallback((drawerHeight: number) => {
@@ -295,9 +261,7 @@ export function useMapControls() {
 
     if (newMode === "north") {
       // Pointer vers le nord (heading = 0)
-      setCameraConfig({ heading: 0 });
-      console.log('Setting compass mode to north');
-    }
+      setCameraConfig({ heading: 0 });}
     // En mode heading, on laisse updateMapHeading gérer la rotation
   };
 

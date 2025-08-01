@@ -12,11 +12,7 @@ export class HybridNavigationNotificationService {
     try {
       // Tester si les notifications Expo fonctionnent
       const hasPermission = await NavigationNotificationService.requestPermissions();
-      this.useExpoNotifications = hasPermission;
-      console.log('Using Expo notifications:', this.useExpoNotifications);
-    } catch (error) {
-      console.log('Expo notifications not available, using fallback alerts:', error);
-      this.useExpoNotifications = false;
+      this.useExpoNotifications = hasPermission;} catch (error) {this.useExpoNotifications = false;
     }
 
     this.initialized = true;

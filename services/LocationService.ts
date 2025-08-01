@@ -127,19 +127,13 @@ export function useLocationService(): LocationService {
     }
   }
 
-  const startLocationTracking = async () => {
-    console.log("🔄 Démarrage du service de localisation...");
-    
-    const granted = await requestLocationPermission();
+  const startLocationTracking = async () => {const granted = await requestLocationPermission();
     if (!granted) {
       console.error("❌ Permissions de localisation refusées");
       return;
     }
 
-    try {
-      console.log("🔄 Obtention de la position initiale...");
-      
-      // Essayer plusieurs modes pour obtenir la position initiale
+    try {// Essayer plusieurs modes pour obtenir la position initiale
       let initialPosition;
       const accuracyModes = [
         { name: "BestForNavigation", mode: Location.Accuracy.BestForNavigation },
@@ -149,26 +143,18 @@ export function useLocationService(): LocationService {
       ];
       
       for (const { name, mode } of accuracyModes) {
-        try {
-          console.log(`🔄 Tentative avec ${name}...`);
-          initialPosition = await Location.getCurrentPositionAsync({
+        try {initialPosition = await Location.getCurrentPositionAsync({
             accuracy: mode,
             timeInterval: 5000,
-          });
-          console.log(`✅ Position initiale obtenue avec ${name}:`, initialPosition.coords);
-          setLocation(initialPosition.coords);
+          });setLocation(initialPosition.coords);
           break;
-        } catch (modeError) {
-          console.log(`❌ Échec avec ${name}:`, modeError.message);
-          if (name === "Low") {
+        } catch (modeError) {if (name === "Low") {
             // Si même le mode Low échoue, essayer avec la dernière position connue
             try {
               const lastKnown = await Location.getLastKnownPositionAsync({
                 maxAge: 600000, // 10 minutes
               });
-              if (lastKnown) {
-                console.log("📍 Utilisation de la dernière position connue:", lastKnown.coords);
-                setLocation(lastKnown.coords);
+              if (lastKnown) {setLocation(lastKnown.coords);
                 initialPosition = lastKnown;
               }
             } catch (lastKnownError) {
@@ -180,28 +166,16 @@ export function useLocationService(): LocationService {
 
       if (!initialPosition) {
         throw new Error("Impossible d'obtenir une position avec tous les modes de précision");
-      }
-
-      console.log("🔄 Démarrage du suivi de position...");
-      locationSub.current = await Location.watchPositionAsync(
+      }locationSub.current = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.BestForNavigation,
           distanceInterval: 1,
           timeInterval: 1000,
         },
-        (loc) => {
-          console.log("📍 Nouvelle position:", loc.coords.latitude, loc.coords.longitude);
-          setLocation(loc.coords);
+        (loc) => {setLocation(loc.coords);
         }
-      );
-
-      console.log("🔄 Démarrage du suivi de cap...");
-      
-      // Vérifier la disponibilité du magnétomètre
-      const isAvailable = await Magnetometer.isAvailableAsync();
-      console.log("🧭 Magnétomètre disponible:", isAvailable);
-      
-      if (!isAvailable) {
+      );// Vérifier la disponibilité du magnétomètre
+      const isAvailable = await Magnetometer.isAvailableAsync();if (!isAvailable) {
         console.warn("⚠️ Magnétomètre non disponible sur cet appareil");
         // Continuer sans le cap magnétique
         return;
@@ -212,22 +186,14 @@ export function useLocationService(): LocationService {
       magnetometerSub.current = Magnetometer.addListener(({ x, y, z }) => {
         const rawHeading = calculateHeading(x, y, z);
         updateHeadingSmooth(rawHeading);
-      });
-      
-      console.log("✅ Service de localisation démarré avec succès");
-    } catch (error) {
+      });} catch (error) {
       console.error("❌ Erreur lors du démarrage du suivi:", error);
       
       // Essayer une approche de récupération avec un mode plus permissif
-      try {
-        console.log("🔄 Tentative de récupération avec mode permissif...");
-        const fallbackPosition = await Location.getCurrentPositionAsync({
+      try {const fallbackPosition = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Lowest,
           timeInterval: 15000, // 15 secondes de timeout
-        });
-        
-        console.log("✅ Position obtenue en mode de récupération:", fallbackPosition.coords);
-        setLocation(fallbackPosition.coords);
+        });setLocation(fallbackPosition.coords);
         
         // Essayer de démarrer le suivi avec des paramètres moins exigeants
         locationSub.current = await Location.watchPositionAsync(
@@ -237,33 +203,19 @@ export function useLocationService(): LocationService {
             timeInterval: 2000,
           },
           (loc) => setLocation(loc.coords)
-        );
-        
-        console.log("✅ Suivi de position démarré en mode récupération");
-      } catch (fallbackError) {
+        );} catch (fallbackError) {
         console.error("❌ Échec de la récupération:", fallbackError);
         
         // Dernier recours: essayer de démarrer le suivi sans position initiale
-        try {
-          console.log("🔄 Tentative de démarrage du suivi sans position initiale...");
-          locationSub.current = await Location.watchPositionAsync(
+        try {locationSub.current = await Location.watchPositionAsync(
             {
               accuracy: Location.Accuracy.Low,
               distanceInterval: 10,
               timeInterval: 5000,
             },
-            (loc) => {
-              console.log("📍 Position obtenue via le suivi:", loc.coords);
-              setLocation(loc.coords);
+            (loc) => {setLocation(loc.coords);
             }
-          );
-          
-          console.log("✅ Suivi démarré sans position initiale - en attente de la première position...");
-          
-          // Démarrer le magnétomètre même sans position initiale
-          console.log("🧭 Démarrage du magnétomètre en mode récupération...");
-          
-          const isAvailable = await Magnetometer.isAvailableAsync();
+          );// Démarrer le magnétomètre même sans position initialeconst isAvailable = await Magnetometer.isAvailableAsync();
           console.log("🧭 Magnétomètre disponible (récupération):", isAvailable);
           
           if (isAvailable) {
@@ -299,17 +251,12 @@ export function useLocationService(): LocationService {
     // Démarrer le magnétomètre immédiatement au montage du composant
     const initMagnetometer = async () => {
       try {
-        const isAvailable = await Magnetometer.isAvailableAsync();
-        console.log("🧭 Initialisation du magnétomètre:", isAvailable);
-        
-        if (isAvailable) {
+        const isAvailable = await Magnetometer.isAvailableAsync();if (isAvailable) {
           Magnetometer.setUpdateInterval(100);
           magnetometerSub.current = Magnetometer.addListener(({ x, y, z }) => {
             const rawHeading = calculateHeading(x, y, z);
             updateHeadingSmooth(rawHeading);
-          });
-          console.log("✅ Magnétomètre démarré avec succès");
-        } else {
+          });} else {
           console.warn("⚠️ Magnétomètre non disponible sur cet appareil");
         }
       } catch (error) {

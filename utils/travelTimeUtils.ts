@@ -42,10 +42,7 @@ export class TravelTimeExamples {
         userLocation,
         waypoints,
         'driving'
-      );
-      
-      console.log(`Itinéraire total:`);
-      console.log(`- Durée: ${Math.round(result.totalDuration / 60)} minutes`);
+      );console.log(`- Durée: ${Math.round(result.totalDuration / 60)} minutes`);
       console.log(`- Distance: ${Math.round(result.totalDistance / 1000)} km`);
       
       result.segments.forEach((segment, index) => {
@@ -64,14 +61,9 @@ export class TravelTimeExamples {
     const destination = { latitude: 48.8606, longitude: 2.3376 };
     
     try {
-      const comparison = await TravelTimeService.compareTravelModes(origin, destination);
-      
-      console.log('Comparaison des modes de transport:');
-      Object.entries(comparison).forEach(([mode, result]) => {
+      const comparison = await TravelTimeService.compareTravelModes(origin, destination);Object.entries(comparison).forEach(([mode, result]) => {
         const minutes = Math.round(result.duration / 60);
-        const meters = Math.round(result.distance);
-        console.log(`- ${mode}: ${minutes}min, ${meters}m`);
-      });
+        const meters = Math.round(result.distance);});
     } catch (error) {
       console.error('Erreur:', error);
     }
@@ -92,14 +84,9 @@ export class TravelTimeExamples {
       });
       
       const normalTime = Math.round(result.duration / 60);
-      const trafficTime = result.durationInTraffic ? Math.round(result.durationInTraffic / 60) : normalTime;
+      const trafficTime = result.durationInTraffic ? Math.round(result.durationInTraffic / 60) : normalTime;console.log(`Temps avec trafic: ${trafficTime} minutes`);
       
-      console.log(`Temps normal: ${normalTime} minutes`);
-      console.log(`Temps avec trafic: ${trafficTime} minutes`);
-      
-      if (trafficTime > normalTime) {
-        console.log(`Retard dû au trafic: ${trafficTime - normalTime} minutes`);
-      }
+      if (trafficTime > normalTime) {}
     } catch (error) {
       console.error('Erreur:', error);
     }

@@ -136,9 +136,7 @@ class NavigationService {
       const closestStepIndex = NavigationInstructionService.findClosestStep(location, this.navigationState.steps);
       
       // Si l'utilisateur est plus proche d'une étape plus avancée, passer à cette étape
-      if (closestStepIndex > this.navigationState.currentStepIndex) {
-        console.log(`🚀 User skipped to step ${closestStepIndex}`);
-        this.navigationState.currentStepIndex = closestStepIndex;
+      if (closestStepIndex > this.navigationState.currentStepIndex) {this.navigationState.currentStepIndex = closestStepIndex;
         this.navigationState.nextStep = this.navigationState.steps[closestStepIndex];
         this.navigationState.distanceToNextStep = this.navigationState.nextStep?.distance || 0;
         
@@ -156,10 +154,7 @@ class NavigationService {
         );
         if (needsRecalculation) {
           // Vibration pour indiquer que la route a été recalculée
-          Vibration.vibrate([50, 50, 50]); // Triple vibration courte pour recalcul
-          console.log('🔄 Route recalculated due to deviation');
-          
-          // IMPORTANT: Récupérer les nouvelles données de route directement depuis l'API
+          Vibration.vibrate([50, 50, 50]); // Triple vibration courte pour recalcul// IMPORTANT: Récupérer les nouvelles données de route directement depuis l'API
           if (this.lastTripDestination) {
             try {
               // Recalculer la route depuis la position actuelle vers la destination
@@ -169,10 +164,7 @@ class NavigationService {
                 this.currentMode
               );
               
-              if (routeCalculated) {
-                console.log('🔄 Route successfully recalculated from API');
-                
-                // Les nouvelles coordonnées sont automatiquement mises à jour dans routeService
+              if (routeCalculated) {// Les nouvelles coordonnées sont automatiquement mises à jour dans routeService
                 // Maintenant on a besoin de récupérer les nouvelles étapes depuis l'API OSRM
                 const newSteps = await this.fetchNavigationStepsFromAPI(
                   { latitude: location.latitude, longitude: location.longitude },
@@ -180,10 +172,7 @@ class NavigationService {
                   this.currentMode
                 );
                 
-                if (newSteps && newSteps.length > 0) {
-                  console.log(`🔄 Updated navigation steps from API: ${newSteps.length} steps`);
-                  
-                  // Mettre à jour les étapes de navigation
+                if (newSteps && newSteps.length > 0) {// Mettre à jour les étapes de navigation
                   this.navigationState.steps = newSteps;
                   this.navigationState.currentStepIndex = 0; // Repartir de la première étape
                   this.navigationState.nextStep = newSteps[0];
@@ -371,18 +360,12 @@ class NavigationService {
   ): Promise<NavigationStep[]> {
     try {
       const osrmMode = mode === 'bicycling' ? 'bike' : mode === 'walking' ? 'foot' : 'driving';
-      const url = `https://router.project-osrm.org/route/v1/${osrmMode}/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true`;
-      
-      console.log('🔄 Fetching navigation steps from OSRM API:', url);
-      
-      const response = await fetch(url);
+      const url = `https://router.project-osrm.org/route/v1/${osrmMode}/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true`;const response = await fetch(url);
       const data = await response.json();
       
       if (data.routes && data.routes.length > 0) {
         // Utiliser la méthode existante pour convertir les données OSRM
-        const steps = this.convertRouteToNavigationSteps(data);
-        console.log(`🔄 Successfully fetched ${steps.length} steps from OSRM`);
-        return steps;
+        const steps = this.convertRouteToNavigationSteps(data);return steps;
       } else {
         console.warn('🔄 No routes found in OSRM response');
         return [];
@@ -397,11 +380,7 @@ class NavigationService {
   convertRouteToNavigationSteps(routeData: any): NavigationStep[] {
     // Cette fonction doit être adaptée selon le format des données de votre API de routing
     // Exemple avec les données OSRM ou OpenRouteService
-    const steps: NavigationStep[] = [];
-    
-    console.log('🔧 Debug - Conversion des données de route:', routeData);
-    
-    if (routeData.routes && routeData.routes[0] && routeData.routes[0].legs) {
+    const steps: NavigationStep[] = [];if (routeData.routes && routeData.routes[0] && routeData.routes[0].legs) {
       routeData.routes[0].legs.forEach((leg: any) => {
         if (leg.steps) {
           leg.steps.forEach((step: any, index: number) => {

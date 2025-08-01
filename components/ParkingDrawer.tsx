@@ -86,9 +86,7 @@ export default function ParkingDrawer({
 
   // Sélectionner un parking
   const handleParkingSelect = (parking: ParkingSpot) => {
-    Vibration.vibrate(50);
-    console.log("Parking sélectionné:", parking);
-    setSelectedParking(parking);
+    Vibration.vibrate(50);setSelectedParking(parking);
     onParkingSelect(parking);
   };
 

@@ -78,9 +78,7 @@ export class SafetyTestConfig {
     if (SafetyTestConfig.IS_TEST_MODE) {
       console.warn('⚠️ ATTENTION: Mode test activé - Ne pas déployer en production!');
       console.log('🧪 En mode test: POI recherchés à 10 minutes (0.17h) de votre position future');
-    } else {
-      console.log('✅ Mode production activé');
-      console.log('🚗 En mode production: POI recherchés à 2h de votre position future');
+    } else {console.log('🚗 En mode production: POI recherchés à 2h de votre position future');
     }
   }
 }

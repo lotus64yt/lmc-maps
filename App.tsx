@@ -146,8 +146,7 @@ function MapContent() {
     switch (choice) {
       case 'remind':
         // Programmer un rappel dans 2 heures (config automatique selon le mode test/production)
-        console.log(`[Safety] Setting reminder timer for ${SafetyTestConfig.REMINDER_DELAY_SECONDS} seconds`);
-        const reminderTimer = setTimeout(() => {
+const reminderTimer = setTimeout(() => {
           setShowRestReminder(true);
         }, SafetyTestConfig.getReminderDelayMs());
         setRestReminderTimer(reminderTimer);
@@ -196,8 +195,7 @@ function MapContent() {
   // Fonction pour calculer la position estimée dans X heures selon la route
   const calculateFuturePosition = (hoursAhead: number): { latitude: number; longitude: number } | null => {
     if (!location || !routeCoords || routeCoords.length === 0 || !isNavigating) {
-      console.log('[Safety] Cannot calculate future position: missing data');
-      return null;
+return null;
     }
 
     // Vitesse moyenne estimée selon le mode de transport (km/h)
@@ -282,8 +280,7 @@ function MapContent() {
     // Si on arrive ici, la destination est plus proche que X heures
     // Retourner la destination finale
     const finalPosition = routeCoords[routeCoords.length - 1];
-    console.log(`[Safety] Destination reached before ${hoursAhead}h, using final position`);
-    return finalPosition;
+return finalPosition;
   };
 
   const handleFindRestStops = async () => {
@@ -294,8 +291,7 @@ function MapContent() {
       const twoHoursFromNow = calculateFuturePosition(SafetyTestConfig.IS_TEST_MODE ? 0.17 : 2); // 10 minutes en mode test, 2h en production
       
       if (!twoHoursFromNow) {
-        console.log('[Safety] Using current location as fallback for POI search');
-        // Fallback sur la position actuelle si on ne peut pas calculer
+// Fallback sur la position actuelle si on ne peut pas calculer
         setCustomPOILocation(null);
         setIsFutureLocationSearch(false);
         handleShowPOI('fuel');
@@ -309,8 +305,7 @@ function MapContent() {
       setIsFutureLocationSearch(true);
       
       console.log(`[Safety] Future position for rest stops: ${SafetyTestConfig.formatDuration(SafetyTestConfig.IS_TEST_MODE ? 10 : 120)} ahead`);
-      console.log(`[Safety] 🎯 POI search will be performed at future location instead of current location`);
-      handleShowPOI('fuel'); // Commencer par les stations essence qui ont souvent des aires de repos
+handleShowPOI('fuel'); // Commencer par les stations essence qui ont souvent des aires de repos
       
     } catch (error) {
       console.error('Erreur lors de la recherche d\'aires de repos:', error);
@@ -337,8 +332,7 @@ function MapContent() {
         
       case 'ignore':
         // Programmer un nouveau rappel dans 2 heures (config automatique selon le mode test/production)
-        console.log(`[Safety] Setting repeated reminder timer for ${SafetyTestConfig.REPEATED_REMINDER_DELAY_SECONDS} seconds`);
-        const newReminderTimer = setTimeout(() => {
+const newReminderTimer = setTimeout(() => {
           setShowRestReminder(true);
         }, SafetyTestConfig.getRepeatedReminderDelayMs());
         setRestReminderTimer(newReminderTimer);
@@ -460,11 +454,7 @@ function MapContent() {
           HybridNavigationNotificationService.getServiceType()
         );
       } catch (error) {
-        console.log(
-          "Erreur lors de l'initialisation des notifications:",
-          error
-        );
-        // L'application continue de fonctionner même si les notifications ne marchent pas
+// L'application continue de fonctionner même si les notifications ne marchent pas
       }
     };
 
@@ -491,21 +481,13 @@ function MapContent() {
       setTimeout(() => {
         // Vérifier à nouveau que les conditions sont toujours valides
         if (isFollowingUser && !selectedParking && !isParkingAnimating) {
-          console.log("✅ Suivi utilisateur autorisé - lancement de followUserLocation");
-          followUserLocation(location);
+followUserLocation(location);
         } else {
-          console.log("❌ Suivi utilisateur bloqué lors de la vérification finale");
-        }
+}
       }, delayBeforeFollow);
     } else {
       if (location && isFollowingUser) {
-        console.log("🚫 Suivi utilisateur bloqué - raisons:", {
-          selectedParking: !!selectedParking,
-          showLocationInfoDrawer,
-          showParkingDrawer,
-          isParkingAnimating
-        });
-      }
+}
     }
   }, [location, isFollowingUser, selectedParking, showLocationInfoDrawer, showParkingDrawer, isParkingAnimating]);
 
@@ -780,8 +762,7 @@ function MapContent() {
       const isIntermediateStop = selectedDestination?.finalDestination;
       
       if (isIntermediateStop) {
-        console.log("🛑 Arrivée à l'arrêt intermédiaire:", selectedDestination?.title);
-        console.log("🎯 Continuation automatique vers la destination finale...");
+console.log("🎯 Continuation automatique vers la destination finale...");
         
         try {
           setIsRecalculatingRoute(true);
@@ -819,9 +800,7 @@ function MapContent() {
                 latitude: finalDestination.latitude,
                 longitude: finalDestination.longitude,
               });
-              
-              console.log("✅ Navigation reprise automatiquement vers la destination finale");
-            }
+}
           }
         } catch (error) {
           console.error("❌ Erreur lors de la reprise de navigation:", error);
@@ -834,8 +813,7 @@ function MapContent() {
         }
       } else {
         // Arrivée à la destination finale
-        console.log("🏁 Arrivée à la destination finale");
-        setHasReachedDestination(true);
+setHasReachedDestination(true);
         setShowArrivalDrawer(true);
         setIsNavigating(false);
 
@@ -938,9 +916,7 @@ function MapContent() {
 
   // Fonction pour ajouter un arrêt pendant la navigation
   const handleAddNavigationStop = async (result: any) => {
-    console.log("🛑 Ajout d'un arrêt pendant la navigation:", result.title);
-
-    if (!location) {
+if (!location) {
       console.warn("⚠️ Position utilisateur non disponible pour ajouter un arrêt");
       return;
     }
@@ -962,17 +938,14 @@ function MapContent() {
             text: "Ajouter l'arrêt",
             onPress: async () => {
               try {
-                console.log("🔄 Début du recalcul de l'itinéraire avec arrêt...");
-                setIsRecalculatingRoute(true);
+setIsRecalculatingRoute(true);
                 
                 // Sauvegarder la destination finale actuelle
                 const finalDestination = destination;
                 if (!finalDestination) {
                   throw new Error("Aucune destination finale trouvée");
                 }
-                
-                console.log("🎯 Destination finale sauvegardée:", finalDestination);
-                console.log("🛑 Arrêt à ajouter:", stopCoordinate);
+console.log("🛑 Arrêt à ajouter:", stopCoordinate);
                 
                 // Calculer un itinéraire multi-étapes : Position actuelle -> Arrêt -> Destination finale
                 const waypoints = [
@@ -983,10 +956,7 @@ function MapContent() {
                 
                 const waypointsUrl = waypoints.join(';');
                 const url = `https://router.project-osrm.org/route/v1/driving/${waypointsUrl}?overview=full&geometries=geojson&steps=true`;
-                
-                console.log("🔗 URL de l'itinéraire multi-étapes:", url);
-                
-                const response = await fetch(url);
+const response = await fetch(url);
                 const data = await response.json();
 
                 if (data.routes && data.routes.length > 0) {
@@ -1031,10 +1001,7 @@ function MapContent() {
                       );
                     }, 500); // Délai pour s'assurer que routeCoords est mis à jour
                   }
-
-                  console.log("✅ Navigation redirigée vers l'arrêt avec itinéraire complet:", result.title);
-                  
-                  // Afficher une notification de succès
+// Afficher une notification de succès
                   Alert.alert(
                     "Arrêt ajouté avec succès", 
                     `L'arrêt "${result.title}" a été ajouté à votre itinéraire. Vous continuerez ensuite vers votre destination finale.`
@@ -1060,9 +1027,7 @@ function MapContent() {
 
   // Fonction pour rechercher des POI à proximité pendant la navigation
   const handleSearchNearbyPOI = async (amenityType: string) => {
-    console.log("🔍 Recherche de POI à proximité pendant la navigation:", amenityType);
-
-    if (!location) {
+if (!location) {
       console.warn("⚠️ Position utilisateur non disponible pour la recherche POI");
       return;
     }
@@ -1100,8 +1065,7 @@ function MapContent() {
           }, 300); // Délai de 300ms pour que le drawer soit complètement ouvert
         }
       } else {
-        console.log(`❌ Aucun POI "${amenityType}" trouvé à proximité`);
-        Alert.alert(
+Alert.alert(
           "Aucun résultat",
           `Aucun "${amenityType}" trouvé dans un rayon de ${searchRadius/1000}km.`
         );
@@ -1466,10 +1430,7 @@ function MapContent() {
           setIsNavigating(true);
         } else if (transportMode === "walking") {
           // Si pas de route disponible en mode marche, utiliser la ligne directe
-          console.log(
-            "Aucune route trouvée, utilisation de la navigation directe"
-          );
-          setIsNavigating(true);
+setIsNavigating(true);
         }
       } catch (error) {
         console.error(
@@ -1579,8 +1540,7 @@ function MapContent() {
     latitude: number;
     longitude: number;
   }) => {
-    console.log("🅿️ Recherche de parking depuis ArrivalDrawer:", location);
-    setParkingLocation(location);
+setParkingLocation(location);
     setShowParkingDrawer(true);
 
     // Fermer l'ArrivalDrawer quand le ParkingDrawer s'ouvre
@@ -1589,9 +1549,7 @@ function MapContent() {
 
   // Fonction pour effacer les étapes de navigation
   const handleClearSteps = () => {
-    console.log("🗑️ Effacement des étapes de navigation depuis ArrivalDrawer");
-
-    // Effacer les étapes multi-étapes
+// Effacer les étapes multi-étapes
     setRouteSteps([]);
 
     // Effacer les coordonnées de route multi-étapes
@@ -1613,11 +1571,7 @@ function MapContent() {
     // Effacer seulement les coordonnées de route, mais garder la destination
     // pour permettre la navigation vers un parking
     clearRouteKeepDestination();
-
-    console.log(
-      "✅ Étapes de navigation effacées, destination conservée pour parking éventuel"
-    );
-  };
+};
 
   // Fonctions pour gérer le ParkingDrawer
   const handleCloseParkingDrawer = () => {
@@ -1631,22 +1585,14 @@ function MapContent() {
     setTimeout(() => {
       setSelectedParking(null); // Nettoyer le parking sélectionné
       setIsParkingAnimating(false); // Réactiver les animations automatiques
-      console.log("🎥 Parking drawer fermé et états nettoyés - contrôle caméra relâché");
-    }, 200);
+}, 200);
     
     // NE PAS réactiver automatiquement le suivi utilisateur
     // L'utilisateur doit le faire manuellement via les contrôles si souhaité
   };
 
   const handleSelectParking = (parking: any, useExactSpot?: boolean) => {
-    console.log(
-      "🅿️ Parking sélectionné:",
-      parking,
-      "useExactSpot:",
-      useExactSpot
-    );
-
-    // Déterminer les coordonnées du parking
+// Déterminer les coordonnées du parking
     // Essayer différentes structures possibles
     const parkingCoordinate = {
       latitude:
@@ -1658,10 +1604,7 @@ function MapContent() {
         parking.coordinates?.[0] ||
         parking.longitude,
     };
-
-    console.log("🅿️ Coordonnées extraites:", parkingCoordinate);
-
-    // BLOQUER TOUTES LES ANIMATIONS AUTOMATIQUES pendant la sélection du parking
+// BLOQUER TOUTES LES ANIMATIONS AUTOMATIQUES pendant la sélection du parking
     setIsParkingAnimating(true);
 
     // LE PARKING DRAWER PREND LE CONTRÔLE EXCLUSIF DE LA CAMÉRA
@@ -1689,15 +1632,12 @@ function MapContent() {
         latitude: parkingCoordinate.latitude - 0.00045, // Légère correction vers le sud
         longitude: parkingCoordinate.longitude,
       };
-      
-      console.log("🎥 Animation caméra vers parking avec correction sud:", correctedCoordinate);
-      animateToCoordinateLocked(correctedCoordinate, 18, 0); // Animation verrouillée avec vue de haut (pitch=0)
+animateToCoordinateLocked(correctedCoordinate, 18, 0); // Animation verrouillée avec vue de haut (pitch=0)
       
       // Réactiver les animations automatiques après l'animation du parking (délai plus long pour sécurité)
       setTimeout(() => {
         setIsParkingAnimating(false);
-        console.log("🎥 État d'animation de parking nettoyé dans App.tsx après délai sécurisé");
-        // NOTE: On ne relâche PAS le contrôle caméra ici - seulement quand le drawer se ferme
+// NOTE: On ne relâche PAS le contrôle caméra ici - seulement quand le drawer se ferme
       }, 2500); // 2.5 secondes pour être sûr que l'animation est complètement terminée
     }, 150); // Délai initial légèrement plus long
 
@@ -1709,9 +1649,7 @@ function MapContent() {
 
   // Fonction pour naviguer vers l'entrée du parking
   const handleNavigateToParking = async (parking: any) => {
-    console.log("🅿️ Navigation vers l'entrée du parking:", parking);
-
-    if (!location) {
+if (!location) {
       console.warn("⚠️ Position utilisateur non disponible pour la navigation");
       return;
     }
@@ -1774,11 +1712,8 @@ function MapContent() {
           latitude: closestEntrance.lat,
           longitude: closestEntrance.lon,
         };
-
-        console.log("🚪 Entrée la plus proche trouvée:", entranceCoordinate);
-      } else {
-        console.log("🚪 Aucune entrée spécifique trouvée, utilisation des coordonnées du parking");
-      }
+} else {
+}
 
       // Fermer le drawer de parking
       setShowParkingDrawer(false);

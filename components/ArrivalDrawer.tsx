@@ -78,11 +78,7 @@ export default function ArrivalDrawer({
         .replace(/,.*$/, '') // Enlever tout après la première virgule
         .replace(/\d+/g, '') // Enlever les numéros
         .replace(/[^\w\s]/g, '') // Enlever la ponctuation
-        .trim();
-
-      console.log(`📸 Recherche de photos pour: ${cleanPlaceName}`);
-
-      // API Unsplash public (sans clé nécessaire pour les recherches basiques)
+        .trim();// API Unsplash public (sans clé nécessaire pour les recherches basiques)
       const searchQueries = [
         cleanPlaceName,
         `${cleanPlaceName} architecture`,
@@ -114,13 +110,9 @@ export default function ArrivalDrawer({
                 height: photo.height,
               }));
               setPhotos(placePhotos);
-              foundPhotos = true;
-              console.log(`📸 ${placePhotos.length} photos trouvées via Unsplash`);
-            }
+              foundPhotos = true;}
           }
-        } catch (err) {
-          console.log(`Failed to fetch photos for query: ${query}`, err);
-          continue;
+        } catch (err) {continue;
         }
       }
 
@@ -143,13 +135,9 @@ export default function ArrivalDrawer({
                   width: 400,
                   height: 300,
                 }));
-              setPhotos(wikiPhotos);
-              console.log(`📸 ${wikiPhotos.length} photos trouvées via Wikipedia`);
-            }
+              setPhotos(wikiPhotos);}
           }
-        } catch (err) {
-          console.log('Failed to fetch Wikipedia photos', err);
-        }
+        } catch (err) {}
       }
 
     } catch (err) {
@@ -167,11 +155,7 @@ export default function ArrivalDrawer({
     setPhotos([]);
 
     // Vérifier si on est à Paris dès le début - TOUJOURS tester les coordonnées
-    const inParis = ParkingService.isInParis(coord.latitude, coord.longitude);
-    console.log(`🅿️ fetchDestinationInfo - Coordonnées: ${coord.latitude}, ${coord.longitude}`);
-    console.log(`🅿️ fetchDestinationInfo - Bounds Paris: N:48.9021 S:48.8155 E:2.4699 W:2.2242`);
-    console.log(`🅿️ fetchDestinationInfo - Location in Paris: ${inParis}`);
-    setIsInParis(inParis);
+    const inParis = ParkingService.isInParis(coord.latitude, coord.longitude);console.log(`🅿️ fetchDestinationInfo - Bounds Paris: N:48.9021 S:48.8155 E:2.4699 W:2.2242`);setIsInParis(inParis);
 
     try {
       const result = await NominatimService.reverse(
@@ -223,9 +207,7 @@ export default function ArrivalDrawer({
   // Fonction pour rechercher un parking
   const handleFindParking = () => {
     Vibration.vibrate(50);
-    if (destination && destination.coordinate && onFindParking) {
-      console.log('🅿️ Appel onFindParking avec coordonnées:', destination.coordinate);
-      onFindParking(destination.coordinate);
+    if (destination && destination.coordinate && onFindParking) {onFindParking(destination.coordinate);
     }
   };
 
@@ -241,9 +223,7 @@ export default function ArrivalDrawer({
     if (visible && destination?.coordinate && dataLoaded) {
       const inParis = ParkingService.isInParis(destination.coordinate.latitude, destination.coordinate.longitude);
       console.log(`🅿️ Vérification Paris (dataLoaded=true): ${inParis}`);
-      if (inParis !== isInParis) {
-        console.log(`🅿️ Correction de l'état isInParis: ${isInParis} -> ${inParis}`);
-        setIsInParis(inParis);
+      if (inParis !== isInParis) {setIsInParis(inParis);
       }
     }
   }, [visible, destination?.coordinate, dataLoaded, isInParis]);
@@ -260,27 +240,19 @@ export default function ArrivalDrawer({
       const lonDiff = Math.abs(destination.coordinate.longitude - parseFloat(locationInfo?.lon || '0'));
       const tolerance = 0.0001; // ~10 mètres de tolérance
       
-      if (latDiff > tolerance || lonDiff > tolerance) {
-        console.log('🔄 Nouvelle destination détectée, réinitialisation des données');
-        console.log(`🔄 Ancienne: ${currentLatLng}, Nouvelle: ${newLatLng}`);
+      if (latDiff > tolerance || lonDiff > tolerance) {console.log(`🔄 Ancienne: ${currentLatLng}, Nouvelle: ${newLatLng}`);
         setDataLoaded(false);
         setLocationInfo(null);
         setPhotos([]);
         setError(null);
         setIsInParis(false); // Seulement réinitialiser si c'est vraiment une nouvelle destination
-      } else {
-        console.log('🔄 Même destination, pas de réinitialisation');
-      }
+      } else {}
     }
   }, [destination?.coordinate?.latitude, destination?.coordinate?.longitude]);
 
   // Debug: surveiller les changements d'état isInParis
-  useEffect(() => {
-    console.log(`🅿️ isInParis state changed to: ${isInParis}`);
-    if (destination?.coordinate) {
-      const testInParis = ParkingService.isInParis(destination.coordinate.latitude, destination.coordinate.longitude);
-      console.log(`🅿️ ParkingService.isInParis test: ${testInParis}`);
-    }
+  useEffect(() => {if (destination?.coordinate) {
+      const testInParis = ParkingService.isInParis(destination.coordinate.latitude, destination.coordinate.longitude);}
   }, [isInParis]);
 
   // Animation logic et gestion du suivi utilisateur

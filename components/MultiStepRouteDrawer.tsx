@@ -528,9 +528,7 @@ export default function MultiStepRouteDrawer({
           onClose={handlePOIDrawerClose}
           onSelectPOI={handlePOISelect}
           onShowRoute={(poi, transportMode) => {
-            // Gérer l'affichage de l'itinéraire vers le POI si nécessaire
-            console.log('Show route to POI:', poi, transportMode);
-          }}
+            // Gérer l'affichage de l'itinéraire vers le POI si nécessaire}}
           onRadiusChange={(radius) => {
             // Le rayon est géré automatiquement par le POIDrawer
           }}

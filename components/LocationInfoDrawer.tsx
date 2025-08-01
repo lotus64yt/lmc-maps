@@ -138,9 +138,7 @@ export default function LocationInfoDrawer({
               break;
             }
           }
-        } catch (err) {
-          console.log(`Failed to fetch photos for query: ${query}`, err);
-          continue;
+        } catch (err) {continue;
         }
       }
 
@@ -166,9 +164,7 @@ export default function LocationInfoDrawer({
               setPhotos(wikiPhotos);
             }
           }
-        } catch (err) {
-          console.log('Failed to fetch Wikipedia photos', err);
-        }
+        } catch (err) {}
       }
 
     } catch (err) {

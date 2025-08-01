@@ -158,9 +158,7 @@ export default function POIDrawer({
   React.useEffect(() => {
     if (visible && userLocation) {
       // Si on a des POI pré-chargés, les utiliser au lieu de faire une nouvelle recherche
-      if (preloadedPois && preloadedPois.length > 0) {
-        console.log("Utilisation des POI pré-chargés");
-        setPois(preloadedPois);
+      if (preloadedPois && preloadedPois.length > 0) {setPois(preloadedPois);
         
         // Notifier le parent des POI trouvés (filtrés par le rayon actuel)
         if (onPOIsFound) {

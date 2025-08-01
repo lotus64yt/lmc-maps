@@ -126,10 +126,7 @@ export function useRouteService(): RouteService {
           );
           
           // Détecter les virages serrés dans la route
-          const sharpTurns = detectSharpTurns(routeCoords);
-          console.log(`🔄 Detected ${sharpTurns.length} sharp turns in route`);
-          
-          // Combiner : route complète (la ligne directe sera affichée séparément)
+          const sharpTurns = detectSharpTurns(routeCoords);// Combiner : route complète (la ligne directe sera affichée séparément)
           finalRouteCoords = routeCoords;
           
           // Calculer les informations combinées
@@ -171,10 +168,7 @@ export function useRouteService(): RouteService {
           );
           
           // Détecter les virages serrés
-          const sharpTurns = detectSharpTurns(finalRouteCoords);
-          console.log(`🔄 Detected ${sharpTurns.length} sharp turns in route`);
-          
-          // Extraire les informations de route
+          const sharpTurns = detectSharpTurns(finalRouteCoords);// Extraire les informations de route
           const duration = Math.round(route.duration / 60);
           const distance = Math.round(route.distance);
           const instruction = route.legs[0]?.steps[0]?.maneuver?.instruction ?? "Suivre l'itinéraire";
@@ -423,9 +417,7 @@ export function useRouteService(): RouteService {
     // Vérifier si on est encore sur la route
     const onRoute = isOnRoute(currentLocation, 100); // Tolérance de 100m
     
-    if (!onRoute) {
-      console.log('🔄 Off route detected, recalculating...');
-      // Recalculer la route depuis la position actuelle
+    if (!onRoute) {// Recalculer la route depuis la position actuelle
       return await getHybridRoute(currentLocation, destination, mode);
     }
     
@@ -484,9 +476,7 @@ export function useRouteService(): RouteService {
     // Nettoyer aussi les nouvelles propriétés
     setDirectLineCoords([]);
     setNearestRoadPoint(null);
-    setHasDirectLineSegment(false);
-    console.log('🧹 Route effacée, destination conservée:', destination);
-  };
+    setHasDirectLineSegment(false);};
 
   const handleDestinationChange = (newDestination: Coordinate | null): void => {
     setDestination(newDestination);

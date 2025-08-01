@@ -20,9 +20,7 @@ export default function ServicesExample() {
   }, []);
 
   const calculateRoute = async () => {
-    if (!locationService.location) {
-      console.log("Position non disponible");
-      return;
+    if (!locationService.location) {return;
     }
 
     const start = {
@@ -35,14 +33,10 @@ export default function ServicesExample() {
       longitude: start.longitude
     };
 
-    const success = await routeService.getRoute(start, destination, 'driving');
-    console.log(success ? "Route calculée" : "Erreur de calcul");
-  };
+    const success = await routeService.getRoute(start, destination, 'driving');};
 
   const calculateRouteWithStaticService = async () => {
-    if (!locationService.location) {
-      console.log("Position non disponible");
-      return;
+    if (!locationService.location) {return;
     }
 
     const start = {
@@ -57,9 +51,7 @@ export default function ServicesExample() {
 
     const result = await RouteCalculationService.calculateRoute(start, destination, 'walking');
     
-    if (result) {
-      console.log(`Route: ${result.duration}min, ${result.distance}m`);
-      console.log(`Instructions: ${result.instructions.length} étapes`);
+    if (result) {console.log(`Instructions: ${result.instructions.length} étapes`);
     }
   };
 
@@ -124,11 +116,7 @@ export class RouteCalculationExample {
     // Calcul simple
     const route = await RouteCalculationService.calculateRoute(paris, louvre, 'walking');
     
-    if (route) {
-      console.log(`Route à pied: ${route.duration}min, ${route.distance}m`);
-      console.log(`${route.coordinates.length} points sur la route`);
-      console.log(`Première instruction: ${route.instructions[0]}`);
-    }
+    if (route) {console.log(`${route.coordinates.length} points sur la route`);}
     
     // Calcul de distance à vol d'oiseau
     const distance = RouteCalculationService.calculateDistance(paris, louvre);

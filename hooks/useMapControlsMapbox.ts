@@ -14,26 +14,19 @@ export function useMapControls() {
       // Activer le mode suivi automatique
       setIsFollowingUser(true);
       
-      // TODO: Implémenter le centrage de caméra pour Mapbox
-      console.log('Centering map on:', location);
-    }
+      // TODO: Implémenter le centrage de caméra pour Mapbox}
   };
 
   const animateToCoordinate = useCallback((coordinate: { latitude: number; longitude: number }) => {
     if (mapRef.current) {
-      // TODO: Implémenter l'animation vers une coordonnée
-      console.log('Animating to coordinate:', coordinate);
-    }
+      // TODO: Implémenter l'animation vers une coordonnée}
   }, []);
 
   const toggleCompassMode = () => {
     setCompassMode(prev => {
       const newMode = prev === "north" ? "heading" : "north";
       
-      // TODO: Implémenter la rotation de carte
-      console.log('Compass mode changed to:', newMode);
-      
-      return newMode;
+      // TODO: Implémenter la rotation de cartereturn newMode;
     });
   };
 
@@ -44,17 +37,13 @@ export function useMapControls() {
         lastUpdateTime.current = now;
         lastHeading.current = heading;
         
-        // TODO: Implémenter la rotation de la carte selon le heading
-        console.log('Updating map heading:', heading);
-      }
+        // TODO: Implémenter la rotation de la carte selon le heading}
     }
   }, [compassMode]);
 
   const followUserLocation = useCallback((location: Location.LocationObjectCoords) => {
     if (mapRef.current && isFollowingUser) {
-      // TODO: Implémenter le suivi de position
-      console.log('Following user location:', location);
-    }
+      // TODO: Implémenter le suivi de position}
   }, [isFollowingUser]);
 
   const handleMapPanDrag = () => {

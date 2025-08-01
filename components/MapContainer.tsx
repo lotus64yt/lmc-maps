@@ -112,20 +112,10 @@ export default function MapContainer({
 
   const [isMapReady, setIsMapReady] = useState(false);
 
-  const [mapBearing, setMapBearing] = useState(0);
-
-  console.log("var used", heading !== 0 ? "heading" : "currentHeading");
-  console.log(heading !== 0 ? heading : currentHeading || 0)
+  const [mapBearing, setMapBearing] = useState(0);console.log(heading !== 0 ? heading : currentHeading || 0)
 
   // Debug log pour le heading
-  useEffect(() => {
-    console.log("🧭 MapContainer - heading values:", {
-      locationServiceHeading: heading,
-      currentHeadingProp: currentHeading,
-      compassMode,
-      mapBearing
-    });
-  }, [heading, currentHeading, compassMode, mapBearing]);
+  useEffect(() => {}, [heading, currentHeading, compassMode, mapBearing]);
 
   // Fonction pour gérer les changements de la caméra
   const onCameraChanged = (state) => {
@@ -135,9 +125,7 @@ export default function MapContainer({
 
   // Handler pour quand la map est prête
   const handleMapReady = () => {
-    setIsMapReady(true);
-    console.log("🗺️ Map is ready");
-  };
+    setIsMapReady(true);};
 
   // Charger la dernière position depuis AsyncStorage au montage
   useEffect(() => {
@@ -156,9 +144,7 @@ export default function MapContainer({
         zoomLevel: savedMapState.zoomLevel,
       });
 
-      setHasInitialized(true);
-      console.log("📍 Map initialized with position:", savedMapState);
-    };
+      setHasInitialized(true);};
 
     loadLastPosition();
   }, [setCameraConfig, hasInitialized]);
@@ -172,9 +158,7 @@ export default function MapContainer({
         location.longitude,
         16
       );
-      setHasZoomedToUser(true);
-      console.log("📍 User location available, will zoom to it");
-    }
+      setHasZoomedToUser(true);}
   }, [location, hasZoomedToUser, initialCenter]);
 
   // Gérer les changements de région de la carte
@@ -227,20 +211,7 @@ export default function MapContainer({
       : null; // Retourner null si pas de données valides
 
   // Debug log pour voir les données hybrides
-  if (hasDirectLineSegment || (isNavigating && navigationMode === "walking")) {
-    console.log("� Hybrid route debug:", {
-      location: !!location,
-      destination: !!destination,
-      showDirectLine,
-      isNavigating,
-      navigationMode,
-      hasDirectLineSegment,
-      directLineCoordsLength: directLineCoords.length,
-      nearestRoadPoint: !!nearestRoadPoint,
-      routeCoordsLength: routeCoords.length,
-      directLineGeoJSON: !!directLineGeoJSON,
-    });
-  }
+  if (hasDirectLineSegment || (isNavigating && navigationMode === "walking")) {}
 
   // Créer les données GeoJSON pour les intersections/étapes de navigation et virages serrés
   const intersectionsGeoJSON = {

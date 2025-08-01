@@ -73,24 +73,18 @@ export function MapViewProvider({
   // Cleanup effect pour éviter les ViewTagResolver errors
   React.useEffect(() => {
     return () => {
-      if (mapRef.current) {
-        console.log('🧹 Cleaning up MapView reference');
-      }
+      if (mapRef.current) {}
     };
   }, []);
 
   // Fonction principale pour configurer la caméra
   const setCameraConfig = (config: CameraConfig, forced: boolean = false, controllerId?: string) => {
     // Si les animations sont verrouillées et que ce n'est pas forcé, ignorer
-    if (isAnimationLocked && !forced) {
-      console.log('🔒 Camera animation blocked - locked mode active');
-      return;
+    if (isAnimationLocked && !forced) {return;
     }
 
     // Si un drawer contrôle la caméra et que cette demande ne vient pas du contrôleur actuel, ignorer
-    if (activeDrawerController && controllerId !== activeDrawerController && !forced) {
-      console.log(`🚫 Camera animation blocked - drawer "${activeDrawerController}" has priority over "${controllerId || 'unknown'}"`);
-      return;
+    if (activeDrawerController && controllerId !== activeDrawerController && !forced) {return;
     }
 
     let hasChanged = false;
@@ -115,9 +109,7 @@ export function MapViewProvider({
       hasChanged = true;
     }
     
-    if (hasChanged) {
-      console.log('🎥 Camera config updated:', config);
-    }
+    if (hasChanged) {}
   };
 
   // Animer vers une location spécifique avec validation du ref
@@ -152,11 +144,7 @@ export function MapViewProvider({
     if (!mapRef.current) {
       console.warn('⚠️ MapView ref is not available for locked animation');
       return;
-    }
-
-    console.log('🔒 Starting locked animation to parking location');
-    
-    // Verrouiller les animations automatiques
+    }// Verrouiller les animations automatiques
     setIsAnimationLocked(true);
 
     // Forcer la configuration de la caméra même si les animations sont verrouillées
@@ -169,22 +157,16 @@ export function MapViewProvider({
 
     // Déverrouiller après la fin de l'animation
     setTimeout(() => {
-      setIsAnimationLocked(false);
-      console.log('🔓 Animation lock released after parking animation');
-    }, duration + 1000); // Ajouter 1 seconde de marge de sécurité pour éviter les conflits
+      setIsAnimationLocked(false);}, duration + 1000); // Ajouter 1 seconde de marge de sécurité pour éviter les conflits
   };
 
   // Fonctions pour gérer le contrôle exclusif des drawers
   const setDrawerCameraControl = (drawerId: string) => {
-    setActiveDrawerController(drawerId);
-    console.log(`🎯 Drawer "${drawerId}" prend le contrôle de la caméra`);
-  };
+    setActiveDrawerController(drawerId);};
 
   const releaseDrawerCameraControl = (drawerId?: string) => {
     if (!drawerId || activeDrawerController === drawerId) {
-      setActiveDrawerController(null);
-      console.log(`🔓 Contrôle caméra libéré par "${drawerId || 'unknown'}"`);
-    }
+      setActiveDrawerController(null);}
   };
 
   // Définir le niveau de zoom
@@ -304,9 +286,7 @@ export function MapViewProvider({
       // Éviter les mises à jour inutiles si le padding n'a pas changé
       if (JSON.stringify(prevPadding) === JSON.stringify(padding)) {
         return prevPadding;
-      }
-      console.log('🖼️ Viewport padding updated:', padding);
-      return padding;
+      }return padding;
     });
   }, []);
 

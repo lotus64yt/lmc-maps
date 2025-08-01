@@ -61,9 +61,7 @@ export class NavigationNotificationService {
         finalStatus = status;
       }
 
-      if (finalStatus !== 'granted') {
-        console.log('Permissions de notification refusées');
-        return false;
+      if (finalStatus !== 'granted') {return false;
       }
 
       // Configuration pour Android
@@ -80,15 +78,11 @@ export class NavigationNotificationService {
             enableLights: true,
             enableVibrate: true,
           });
-        } catch (channelError) {
-          console.log('Erreur lors de la création du canal de notification:', channelError);
-        }
+        } catch (channelError) {}
       } 
 
       return true;
-    } catch (error) {
-      console.log('Erreur lors de la demande de permissions de notification:', error);
-      return false;
+    } catch (error) {return false;
     }
   }
 
@@ -101,9 +95,7 @@ export class NavigationNotificationService {
       stepIndex: -1,
       progressPercentage: 0,
       lastUpdateTime: 0,
-    };
-    console.log('Notifications de navigation démarrées');
-  }
+    };}
 
   // Arrêter les notifications de navigation
   static async stopNavigationNotifications(): Promise<void> {
@@ -120,13 +112,9 @@ export class NavigationNotificationService {
         await Notifications.dismissNotificationAsync(this.notificationId);
         this.notificationId = null;
       }
-    } catch (error) {
-      console.log('Erreur lors de l\'arrêt des notifications:', error);
-    }
+    } catch (error) {}
     
-    this.lastNotificationContent = null;
-    console.log('Notifications de navigation arrêtées');
-  }
+    this.lastNotificationContent = null;}
 
   // Vérifier si une mise à jour est nécessaire
   private static shouldUpdateNotification(
@@ -137,29 +125,21 @@ export class NavigationNotificationService {
     const timeSinceLastUpdate = now - this.lastUpdateData.lastUpdateTime;
 
     // Toujours mettre à jour lors du changement d'étape
-    if (progress.currentStepIndex !== this.lastUpdateData.stepIndex) {
-      console.log('🔔 Mise à jour nécessaire: changement d\'étape');
-      return true;
+    if (progress.currentStepIndex !== this.lastUpdateData.stepIndex) {return true;
     }
 
     // Mettre à jour si la distance change significativement
     const distanceChange = Math.abs(currentStep.distance - this.lastUpdateData.distance);
-    if (distanceChange >= this.UPDATE_THRESHOLDS.DISTANCE_CHANGE) {
-      console.log('🔔 Mise à jour nécessaire: changement de distance significatif');
-      return true;
+    if (distanceChange >= this.UPDATE_THRESHOLDS.DISTANCE_CHANGE) {return true;
     }
 
     // Mettre à jour si le pourcentage de progression change significativement
     const progressChange = Math.abs(progress.progressPercentage - this.lastUpdateData.progressPercentage);
-    if (progressChange >= this.UPDATE_THRESHOLDS.SIGNIFICANT_PROGRESS) {
-      console.log('🔔 Mise à jour nécessaire: changement de progression significatif');
-      return true;
+    if (progressChange >= this.UPDATE_THRESHOLDS.SIGNIFICANT_PROGRESS) {return true;
     }
 
     // Mettre à jour périodiquement (mais pas trop souvent)
-    if (timeSinceLastUpdate >= this.UPDATE_THRESHOLDS.TIME_INTERVAL) {
-      console.log('🔔 Mise à jour nécessaire: intervalle de temps atteint');
-      return true;
+    if (timeSinceLastUpdate >= this.UPDATE_THRESHOLDS.TIME_INTERVAL) {return true;
     }
 
     return false;
@@ -257,15 +237,7 @@ export class NavigationNotificationService {
         stepIndex: progress.currentStepIndex,
         progressPercentage: progress.progressPercentage,
         lastUpdateTime: Date.now(),
-      };
-
-      console.log('🔔 Notification mise à jour', { 
-        stepIndex: progress.currentStepIndex, 
-        distance: currentStep.distance,
-        isNewStep 
-      });
-
-    } catch (error) {
+      };} catch (error) {
       console.error('Erreur lors de la mise à jour de la notification:', error);
     }
   }
@@ -423,9 +395,7 @@ export class NavigationNotificationService {
         this.updateThrottleTimeout = null;
       }
       
-    } catch (error) {
-      console.log('Erreur lors du nettoyage des notifications:', error);
-    }
+    } catch (error) {}
   }
 
   // Obtenir des statistiques sur les mises à jour

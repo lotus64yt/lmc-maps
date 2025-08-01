@@ -31,9 +31,7 @@ export class MapStorageService {
         timestamp: Date.now(),
       };
       
-      await AsyncStorage.setItem(LAST_MAP_POSITION_KEY, JSON.stringify(mapState));
-      console.log('📍 Map position saved:', mapState);
-    } catch (error) {
+      await AsyncStorage.setItem(LAST_MAP_POSITION_KEY, JSON.stringify(mapState));} catch (error) {
       console.error('❌ Error saving map position:', error);
     }
   }
@@ -51,15 +49,9 @@ export class MapStorageService {
         // Vérifier que la position n'est pas trop ancienne (plus de 30 jours)
         const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
         
-        if (parsedPosition.timestamp && parsedPosition.timestamp > thirtyDaysAgo) {
-          console.log('📍 Loaded saved map position:', parsedPosition);
-          return parsedPosition;
-        } else {
-          console.log('📍 Saved position too old, using default');
-        }
-      } else {
-        console.log('📍 No saved position found, using default');
-      }
+        if (parsedPosition.timestamp && parsedPosition.timestamp > thirtyDaysAgo) {return parsedPosition;
+        } else {}
+      } else {}
     } catch (error) {
       console.error('❌ Error loading map position:', error);
     }
@@ -76,9 +68,7 @@ export class MapStorageService {
    */
   static async clearSavedPosition(): Promise<void> {
     try {
-      await AsyncStorage.removeItem(LAST_MAP_POSITION_KEY);
-      console.log('📍 Cleared saved map position');
-    } catch (error) {
+      await AsyncStorage.removeItem(LAST_MAP_POSITION_KEY);} catch (error) {
       console.error('❌ Error clearing map position:', error);
     }
   }
