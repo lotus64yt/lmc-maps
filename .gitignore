@@ -35,6 +35,11 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# System
+# Note: /android and /ios folders are needed for EAS Build
+# /android
+# /ios
+
 # Notes
 notes/
 *.md

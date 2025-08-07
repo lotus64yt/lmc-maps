@@ -13,6 +13,7 @@ import Slider from '@react-native-community/slider';
 import { MaterialIcons } from '@expo/vector-icons';
 import { OverpassPOI, OverpassService } from '@/services/OverpassService';
 import { formatDistance, formatDuration } from '@/utils/formatUtils';
+import { debugLog } from '@/utils/debugUtils';
 
 interface POIDrawerProps {
   visible: boolean;
@@ -27,7 +28,7 @@ interface POIDrawerProps {
   preloadedPois?: OverpassPOI[]; // POI déjà récupérés depuis l'ExpandableSearch
   isNavigating?: boolean; // Nouveau prop pour savoir si on est en navigation
   onAddNavigationStop?: (poi: OverpassPOI) => void; // Nouveau prop pour ajouter un arrêt
-  onCameraMove?: (coordinate: { latitude: number; longitude: number } | null) => void; // Nouveau prop pour gérer la caméra
+  onCameraMove?: (coordinate: { latitude: number; longitude: number } | null, offset?: { x: number; y: number }) => void; // Nouveau prop pour gérer la caméra
 }
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -62,8 +63,14 @@ export default function POIDrawer({
 
   const translateY = useRef(new Animated.Value(0)).current;
   const buttonOpacity = useRef(new Animated.Value(0)).current;
+  const spinValue = useRef(new Animated.Value(0)).current;
   const poiScrollRef = useRef<ScrollView>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastUserLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  const hasSearchedRef = useRef(false);
+  const lastAmenityTypeRef = useRef<string>('');
+  const notifiedPOIsRef = useRef<OverpassPOI[]>([]);
+  const userManualSelectionRef = useRef(false); // Flag pour savoir si l'utilisateur a fait une sélection manuelle
 
   const transportModes = [
     { id: 'walking', icon: 'directions-walk', label: 'Marche' },
@@ -99,17 +106,27 @@ export default function POIDrawer({
     return sortedGroups;
   }, [pois, amenityType, radius]);
 
+  // Helper pour calculer l'offset de la caméra basé sur la hauteur du drawer
+  const getCameraOffset = React.useCallback(() => {
+    const drawerHeightPercent = isExpanded ? 0.7 : 0.4;
+    const offsetY = SCREEN_HEIGHT * drawerHeightPercent * 0.3; // 30% de la hauteur du drawer
+    return { x: 0, y: offsetY };
+  }, [isExpanded]);
+
   // Liste plate des POI pour l'affichage horizontal
   const flatPOIs = React.useMemo(() => {
     return Object.values(groupedPOIs).flat();
   }, [groupedPOIs]);
 
   // Rechercher les POI (une seule fois avec un rayon large)
-  const searchPOIs = async () => {
-    if (!userLocation) return;
-    console.log("fetch overpass api")
+  const searchPOIs = React.useCallback(async () => {
+    if (!userLocation || hasSearchedRef.current) return;
+    debugLog.poi("Fetching from Overpass API");
 
+    hasSearchedRef.current = true;
+    lastAmenityTypeRef.current = amenityType;
     setLoading(true);
+    
     try {
       // Rechercher avec un rayon fixe de 5km pour avoir plus de données à filtrer
       const results = await OverpassService.searchPOI(
@@ -119,83 +136,150 @@ export default function POIDrawer({
         amenityType
       );
       setPois(results);
+      lastUserLocationRef.current = userLocation;
       
-      // Notifier le parent des POI trouvés (filtrés par le rayon actuel)
-      if (onPOIsFound) {
-        const filteredResults = results.filter(poi => (poi.distance || 0) <= radius);
-        onPOIsFound(filteredResults);
-      }
-      
-      // Sélectionner le premier POI dans le rayon actuel
+      // Sélectionner automatiquement le premier POI trouvé
       const filteredResults = results.filter(poi => (poi.distance || 0) <= radius);
       if (filteredResults.length > 0) {
+        debugLog.poi(`Auto-selecting first POI from search: ${filteredResults[0].tags.name}`);
         setSelectedPOI(filteredResults[0]);
         onSelectPOI(filteredResults[0]);
-        // Déplacer la caméra vers le premier POI
         if (onCameraMove) {
-          onCameraMove({ latitude: filteredResults[0].lat, longitude: filteredResults[0].lon });
-        }
-        // Afficher le bouton
-        Animated.timing(buttonOpacity, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }).start();
-      } else {
-        // Aucun POI dans le rayon, déplacer la caméra vers l'utilisateur
-        if (onCameraMove && userLocation) {
-          onCameraMove(userLocation);
+          onCameraMove(
+            { latitude: filteredResults[0].lat, longitude: filteredResults[0].lon },
+            getCameraOffset()
+          );
         }
       }
+      
+      // Notifier le parent
+      if (onPOIsFound) {
+        onPOIsFound(filteredResults);
+        notifiedPOIsRef.current = filteredResults;
+      }
+      
     } catch (error) {
       console.error('Erreur lors de la recherche POI:', error);
+      hasSearchedRef.current = false; // Permettre de réessayer en cas d'erreur
     } finally {
       setLoading(false);
     }
-  };
+  }, [userLocation, amenityType, radius, onSelectPOI, onCameraMove, onPOIsFound, getCameraOffset]);
 
-  // Effet pour rechercher quand le drawer devient visible ou que l'amenityType change
+  // Effet optimisé pour gérer les changements de rayon uniquement
   React.useEffect(() => {
-    if (visible && userLocation) {
-      // Si on a des POI pré-chargés, les utiliser au lieu de faire une nouvelle recherche
-      if (preloadedPois && preloadedPois.length > 0) {setPois(preloadedPois);
-        
-        // Notifier le parent des POI trouvés (filtrés par le rayon actuel)
-        if (onPOIsFound) {
-          const filteredResults = preloadedPois.filter(poi => (poi.distance || 0) <= radius);
-          onPOIsFound(filteredResults);
-        }
-        
-        // Sélectionner le premier POI dans le rayon actuel
-        const filteredResults = preloadedPois.filter(poi => (poi.distance || 0) <= radius);
-        if (filteredResults.length > 0) {
+    debugLog.poi("Radius change effect triggered");
+    if (pois.length > 0) {
+      const filteredResults = pois.filter(poi => (poi.distance || 0) <= radius);
+      
+      // Notifier le parent seulement si les résultats ont changé
+      if (onPOIsFound && JSON.stringify(filteredResults) !== JSON.stringify(notifiedPOIsRef.current)) {
+        onPOIsFound(filteredResults);
+        notifiedPOIsRef.current = filteredResults;
+      }
+      
+      // Si le POI sélectionné n'est plus dans le rayon, sélectionner le premier disponible
+      if (selectedPOI && filteredResults.length > 0) {
+        const isSelectedInRange = filteredResults.some(poi => poi.id === selectedPOI.id);
+        if (!isSelectedInRange && !userManualSelectionRef.current) {
+          // Seulement remplacer si ce n'était pas une sélection manuelle
+          debugLog.poi(`Replacing out-of-range POI: ${selectedPOI.tags.name} -> ${filteredResults[0].tags.name}`);
           setSelectedPOI(filteredResults[0]);
           onSelectPOI(filteredResults[0]);
-          // Déplacer la caméra vers le premier POI
           if (onCameraMove) {
-            onCameraMove({ latitude: filteredResults[0].lat, longitude: filteredResults[0].lon });
+            onCameraMove(
+              { latitude: filteredResults[0].lat, longitude: filteredResults[0].lon },
+              getCameraOffset()
+            );
           }
-          // Afficher le bouton
-          Animated.timing(buttonOpacity, {
-            toValue: 1,
-            duration: 200,
-            useNativeDriver: true,
-          }).start();
-        } else {
-          // Aucun POI dans le rayon, déplacer la caméra vers l'utilisateur
-          if (onCameraMove && userLocation) {
-            onCameraMove(userLocation);
-          }
+        } else if (!isSelectedInRange && userManualSelectionRef.current) {
+          // Si c'était une sélection manuelle et qu'elle n'est plus dans le rayon, garder la sélection
+          console.log(`📍 useEffect radius - Manual selection out of range, keeping selection:`, selectedPOI.tags.name);
         }
-      } else {
-        // Sinon, faire la recherche API
-        searchPOIs();
+      } else if (!selectedPOI && filteredResults.length > 0 && !userManualSelectionRef.current) {
+        // Aucun POI sélectionné mais il y en a dans le rayon (seulement si pas de sélection manuelle)
+        console.log(`📍 useEffect radius - Auto-selecting first POI:`, filteredResults[0].tags.name);
+        setSelectedPOI(filteredResults[0]);
+        onSelectPOI(filteredResults[0]);
+        if (onCameraMove) {
+          onCameraMove(
+            { latitude: filteredResults[0].lat, longitude: filteredResults[0].lon },
+            getCameraOffset()
+          );
+        }
+      } else if (filteredResults.length === 0) {
+        // Aucun POI dans le rayon
+        console.log(`📍 useEffect radius - No POI in range, moving to user location`);
+        setSelectedPOI(null);
+        userManualSelectionRef.current = false; // Reset car aucun POI disponible
+        if (onCameraMove && lastUserLocationRef.current) {
+          onCameraMove(lastUserLocationRef.current);
+        }
       }
     }
-  }, [visible, userLocation, amenityType, preloadedPois]);
+  }, [radius]); // Seulement dépendre du rayon
+
+  // Effet pour initialiser le drawer quand il devient visible
+  React.useEffect(() => {
+    console.log("Second useEffect - drawer initialization")
+    if (visible) {
+      // Le drawer s'ouvre immédiatement, on gère le contenu après
+      if (amenityType !== lastAmenityTypeRef.current) {
+        // Nouveau type d'amenity, réinitialiser
+        hasSearchedRef.current = false;
+        lastAmenityTypeRef.current = amenityType;
+        setSelectedPOI(null);
+        setPois([]);
+        notifiedPOIsRef.current = [];
+      }
+      
+      // Si on a des POI pré-chargés, les utiliser
+      if (preloadedPois && preloadedPois.length > 0 && !hasSearchedRef.current) {
+        setPois(preloadedPois);
+        hasSearchedRef.current = true;
+        lastAmenityTypeRef.current = amenityType;
+        
+        // Sélectionner le premier POI
+        const filteredResults = preloadedPois.filter(poi => (poi.distance || 0) <= radius);
+        if (filteredResults.length > 0) {
+          console.log(`📍 useEffect preloaded - Auto-selecting first POI from preloaded:`, filteredResults[0].tags.name);
+          setSelectedPOI(filteredResults[0]);
+          onSelectPOI(filteredResults[0]);
+          if (onCameraMove) {
+            onCameraMove(
+              { latitude: filteredResults[0].lat, longitude: filteredResults[0].lon },
+              getCameraOffset()
+            );
+          }
+        }
+        
+        if (onPOIsFound) {
+          onPOIsFound(filteredResults);
+          notifiedPOIsRef.current = filteredResults;
+        }
+      }
+    } else {
+      // Drawer fermé, nettoyer
+      hasSearchedRef.current = false;
+      lastAmenityTypeRef.current = '';
+      userManualSelectionRef.current = false; // Reset manual selection flag
+      setSelectedPOI(null);
+      setPois([]);
+      notifiedPOIsRef.current = [];
+    }
+  }, [visible, amenityType]); // Seulement visible et amenityType
+
+  // Effet pour déclencher la recherche quand userLocation devient disponible
+  React.useEffect(() => {
+    console.log("Search trigger useEffect")
+    if (visible && userLocation && !hasSearchedRef.current && (!preloadedPois || preloadedPois.length === 0)) {
+      searchPOIs();
+    }
+  }, [userLocation, visible, preloadedPois, searchPOIs]);
 
   // Nettoyer le timeout quand le composant se démonte
   React.useEffect(() => {
+    console.log("Third useEffect")
     return () => {
       if (searchTimeoutRef.current) {
         clearTimeout(searchTimeoutRef.current);
@@ -205,20 +289,54 @@ export default function POIDrawer({
 
   // Mettre à jour tempRadius quand initialRadius change
   React.useEffect(() => {
+    console.log("Fourth useEffect")
     setRadius(initialRadius);
     setTempRadius(initialRadius);
   }, [initialRadius]);
 
-  // Effet pour gérer la caméra quand le drawer s'ouvre
+  // Effet pour gérer la caméra quand le drawer s'ouvre (une seule fois)
   React.useEffect(() => {
-    if (visible && !selectedPOI && onCameraMove && userLocation) {
+    console.log("Fifth useEffect")
+    if (visible && !selectedPOI && onCameraMove && lastUserLocationRef.current) {
       // Si aucun POI sélectionné quand le drawer s'ouvre, centrer sur l'utilisateur
-      onCameraMove(userLocation);
+      onCameraMove(lastUserLocationRef.current);
     }
-  }, [visible]);
+  }, [visible]); // Retirer les autres dépendances pour éviter les re-renders
+
+  // Effet pour réajuster la caméra quand le drawer change d'état d'expansion
+  React.useEffect(() => {
+    console.log("Camera adjustment useEffect")
+    if (visible && selectedPOI && onCameraMove) {
+      // Réajuster la position de la caméra quand le drawer change de taille
+      setTimeout(() => {
+        onCameraMove(
+          { latitude: selectedPOI.lat, longitude: selectedPOI.lon },
+          getCameraOffset()
+        );
+      }, 300); // Délai pour laisser l'animation du drawer se terminer
+    }
+  }, [isExpanded, selectedPOI, visible, onCameraMove, getCameraOffset]);
+
+  // Animation du spinner de chargement
+  React.useEffect(() => {
+    if (loading) {
+      const spinAnimation = Animated.loop(
+        Animated.timing(spinValue, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        })
+      );
+      spinAnimation.start();
+      return () => spinAnimation.stop();
+    } else {
+      spinValue.setValue(0);
+    }
+  }, [loading, spinValue]);
 
   // Effet pour animer le bouton quand selectedPOI change
   React.useEffect(() => {
+    console.log("Sixth useEffect")
     Animated.timing(buttonOpacity, {
       toValue: selectedPOI ? 1 : 0,
       duration: 200,
@@ -247,11 +365,16 @@ export default function POIDrawer({
 
   // Sélection/déselection d'un POI
   const handlePOISelect = (poi: OverpassPOI, index: number) => {
+    console.log(`🎯 User manually selected POI: ${OverpassService.formatPOIName(poi)}`);
+    userManualSelectionRef.current = true; // Marquer qu'une sélection manuelle a été faite
+    
     // Si on clique sur le POI déjà sélectionné, le déselectionner
     if (selectedPOI?.id === poi.id) {
       setSelectedPOI(null);
+      userManualSelectionRef.current = false;
       // Déplacer la caméra vers l'utilisateur quand aucun POI sélectionné
       if (onCameraMove && userLocation) {
+        console.log(`📍 handlePOISelect - Deselecting POI, moving to user location`);
         onCameraMove(userLocation);
       }
       // Animer le bouton pour le faire disparaître
@@ -265,9 +388,14 @@ export default function POIDrawer({
       setSelectedPOI(poi);
       onSelectPOI(poi);
       
-      // Déplacer la caméra vers le POI sélectionné
+      // TOUJOURS déplacer la caméra vers le POI sélectionné avec offset pour le drawer
       if (onCameraMove) {
-        onCameraMove({ latitude: poi.lat, longitude: poi.lon });
+        console.log(`📍 handlePOISelect - Moving camera to POI: ${OverpassService.formatPOIName(poi)} at coordinates:`, 
+          { latitude: poi.lat, longitude: poi.lon });
+        onCameraMove(
+          { latitude: poi.lat, longitude: poi.lon }, 
+          getCameraOffset()
+        );
       }
       
       // Animer le bouton pour l'afficher
@@ -277,9 +405,11 @@ export default function POIDrawer({
         useNativeDriver: true,
       }).start();
       
-      // Scroll horizontal vers le POI sélectionné
+      // Scroll vertical vers le POI sélectionné (environ 2 cartes par ligne)
+      const rowIndex = Math.floor(index / 2);
+      const cardHeight = 112; // hauteur estimée d'une carte (100 + 12 de margin)
       poiScrollRef.current?.scrollTo({
-        x: index * 280,
+        y: rowIndex * cardHeight,
         animated: true,
       });
     }
@@ -369,50 +499,70 @@ export default function POIDrawer({
             </View>
           </View>
 
-          {/* Liste horizontale des POI */}
+          {/* Liste des POI en grille 2 colonnes */}
           <View style={styles.poisContainer}>
             {loading ? (
-              <Text style={styles.loadingText}>Recherche en cours...</Text>
-            ) : (
-              <CustomScrollView
-                ref={poiScrollRef}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.poisScrollContent}
-              >
-                {flatPOIs.map((poi, index) => (
-                  <TouchableOpacity
-                    key={poi.id}
+              <View style={styles.loadingContainer}>
+                <View style={styles.spinnerContainer}>
+                  <Text style={styles.loadingText}>Recherche en cours...</Text>
+                  <Animated.View 
                     style={[
-                      styles.poiCard,
-                      selectedPOI?.id === poi.id && styles.selectedPoiCard,
+                      styles.spinner,
+                      {
+                        transform: [{
+                          rotate: spinValue.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: ['0deg', '360deg'],
+                          })
+                        }]
+                      }
                     ]}
-                    onPress={() => handlePOISelect(poi, index)}
                   >
-                    <Text style={styles.poiName}>
-                      {OverpassService.formatPOIName(poi)}
-                    </Text>
-                    <Text style={styles.poiAddress}>
-                      {OverpassService.formatPOIAddress(poi) || 'Adresse non disponible'}
-                    </Text>
-                    <Text style={styles.poiDistance}>
-                      {formatDistance(poi.distance || 0)}
-                    </Text>
-                    
-                    {amenityType === '*' && (
-                      <Text style={styles.poiType}>
-                        {poi.tags.amenity}
+                    <Text style={styles.spinnerText}>⟳</Text>
+                  </Animated.View>
+                </View>
+              </View>
+            ) : (
+              <ScrollView 
+                ref={poiScrollRef}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.poisGridContent}
+              >
+                <View style={styles.poisGrid}>
+                  {pois.map((poi, index) => (
+                    <TouchableOpacity
+                      key={poi.id}
+                      style={[
+                        styles.poiGridCard,
+                        selectedPOI?.id === poi.id && styles.selectedPoiGridCard,
+                      ]}
+                      onPress={() => handlePOISelect(poi, index)}
+                    >
+                      <Text style={styles.poiName} numberOfLines={1}>
+                        {OverpassService.formatPOIName(poi)}
                       </Text>
-                    )}
-                    
-                    {poi.tags.opening_hours && (
-                      <Text style={styles.poiHours}>
-                        {poi.tags.opening_hours}
+                      <Text style={styles.poiAddress} numberOfLines={2}>
+                        {OverpassService.formatPOIAddress(poi) || 'Adresse non disponible'}
                       </Text>
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </CustomScrollView>
+                      <Text style={styles.poiDistance}>
+                        {formatDistance(poi.distance || 0)}
+                      </Text>
+                      
+                      {amenityType === '*' && (
+                        <Text style={styles.poiType} numberOfLines={1}>
+                          {poi.tags.amenity}
+                        </Text>
+                      )}
+                      
+                      {poi.tags.opening_hours && (
+                        <Text style={styles.poiHours} numberOfLines={1}>
+                          {poi.tags.opening_hours}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
             )}
           </View>
 
@@ -576,7 +726,6 @@ export default function POIDrawer({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
   backdrop: {
@@ -629,11 +778,20 @@ const styles = StyleSheet.create({
     height: 20,
   },
   poisContainer: {
-    height: 120,
+    flex: 1,
     paddingVertical: 12,
   },
   poisScrollContent: {
     paddingHorizontal: 16,
+  },
+  poisGridContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  poisGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
   },
   poiCard: {
     width: 260,
@@ -644,7 +802,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E0E0E0',
   },
+  poiGridCard: {
+    width: '48%',
+    marginBottom: 12,
+    padding: 12,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    minHeight: 100,
+  },
   selectedPoiCard: {
+    borderColor: '#007AFF',
+    backgroundColor: '#F0F8FF',
+  },
+  selectedPoiGridCard: {
     borderColor: '#007AFF',
     backgroundColor: '#F0F8FF',
   },
@@ -672,7 +844,28 @@ const styles = StyleSheet.create({
   loadingText: {
     textAlign: 'center',
     color: '#666',
-    marginTop: 40,
+    fontSize: 16,
+    marginBottom: 10,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  spinnerContainer: {
+    alignItems: 'center',
+  },
+  spinner: {
+    width: 30,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  spinnerText: {
+    fontSize: 24,
+    color: '#007AFF',
+    fontWeight: 'bold',
   },
   routeSection: {
     padding: 16,

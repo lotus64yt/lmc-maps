@@ -1919,18 +1919,36 @@ if (!location) {
           initialRadius={poiRadius}
           preloadedPois={allPOIs.length > 0 ? allPOIs : undefined}
           isNavigating={isNavigating}
-          onCameraMove={(coordinate) => {
+          onCameraMove={(coordinate, offset) => {
+            console.log(`🎥 App.tsx - onCameraMove called with:`, { coordinate, offset });
             if (coordinate) {
-              // Animer vers les coordonnées du POI avec ajustement pour le drawer
+              // Animer vers les coordonnées du POI avec offset personnalisé ou ajustement par défaut
               setTimeout(() => {
-                const adjustedCoord = getAdjustedCoordinate(coordinate);
-                animateToCoordinate(adjustedCoord);
+                if (offset) {
+                  // Utiliser l'offset fourni par le POIDrawer
+                  const screenHeight = Dimensions.get("window").height;
+                  const latitudeDelta = 0.01;
+                  const offsetLat = (offset.y / screenHeight) * latitudeDelta;
+                  const adjustedCoord = {
+                    latitude: coordinate.latitude + offsetLat,
+                    longitude: coordinate.longitude,
+                    pitch: 0,
+                  };
+                  console.log(`🎥 App.tsx - Moving camera to adjusted coordinates:`, adjustedCoord);
+                  animateToCoordinate(adjustedCoord);
+                } else {
+                  // Utiliser l'ajustement par défaut
+                  const adjustedCoord = getAdjustedCoordinate(coordinate);
+                  console.log(`🎥 App.tsx - Moving camera to default adjusted coordinates:`, adjustedCoord);
+                  animateToCoordinate(adjustedCoord);
+                }
               }, 100);
             } else {
               // Animer vers la position de l'utilisateur avec ajustement pour le drawer
               if (location) {
                 setTimeout(() => {
                   const adjustedCoord = getAdjustedCoordinate(location);
+                  console.log(`🎥 App.tsx - Moving camera to user location:`, adjustedCoord);
                   animateToCoordinate(adjustedCoord);
                 }, 100);
               }

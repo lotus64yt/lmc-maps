@@ -8,6 +8,7 @@ import Mapbox, {
   Camera,
   CircleLayer,
   SymbolLayer,
+  AnimatedShape,
 } from "@rnmapbox/maps";
 import * as Location from "expo-location";
 import { Animated } from "react-native";
@@ -17,6 +18,7 @@ import { MapStorageService } from "../services/MapStorageService";
 import { useMapView } from "../contexts/MapViewContext";
 import { NavigationStep } from "../types/RouteTypes";
 import { useLocationService } from "@/services/LocationService";
+import ArrowIcon from "./ArrowSVG";
 
 Mapbox.setAccessToken("");
 
@@ -112,10 +114,10 @@ export default function MapContainer({
 
   const [isMapReady, setIsMapReady] = useState(false);
 
-  const [mapBearing, setMapBearing] = useState(0);console.log(heading !== 0 ? heading : currentHeading || 0)
+  const [mapBearing, setMapBearing] = useState(0);
 
   // Debug log pour le heading
-  useEffect(() => {}, [heading, currentHeading, compassMode, mapBearing]);
+  useEffect(() => {}, [heading, currentHeading, compassMode, mapBearing]);
 
   // Fonction pour gérer les changements de la caméra
   const onCameraChanged = (state) => {
@@ -125,7 +127,8 @@ export default function MapContainer({
 
   // Handler pour quand la map est prête
   const handleMapReady = () => {
-    setIsMapReady(true);};
+    setIsMapReady(true);
+  };
 
   // Charger la dernière position depuis AsyncStorage au montage
   useEffect(() => {
@@ -144,7 +147,8 @@ export default function MapContainer({
         zoomLevel: savedMapState.zoomLevel,
       });
 
-      setHasInitialized(true);};
+      setHasInitialized(true);
+    };
 
     loadLastPosition();
   }, [setCameraConfig, hasInitialized]);
@@ -158,7 +162,8 @@ export default function MapContainer({
         location.longitude,
         16
       );
-      setHasZoomedToUser(true);}
+      setHasZoomedToUser(true);
+    }
   }, [location, hasZoomedToUser, initialCenter]);
 
   // Gérer les changements de région de la carte
@@ -211,7 +216,8 @@ export default function MapContainer({
       : null; // Retourner null si pas de données valides
 
   // Debug log pour voir les données hybrides
-  if (hasDirectLineSegment || (isNavigating && navigationMode === "walking")) {}
+  if (hasDirectLineSegment || (isNavigating && navigationMode === "walking")) {
+  }
 
   // Créer les données GeoJSON pour les intersections/étapes de navigation et virages serrés
   const intersectionsGeoJSON = {
@@ -343,27 +349,34 @@ export default function MapContainer({
               centerCoordinate={centerCoordinate || initialCenter}
               zoomLevel={zoomLevel}
               pitch={pitch}
-              heading={compassMode === "heading" ? (heading !== 0 ? heading : currentHeading || 0) : 0}
+              heading={
+                compassMode === "heading"
+                  ? heading !== 0
+                    ? heading
+                    : currentHeading || 0
+                  : 0
+              }
               animationDuration={1000}
             />
           )}
 
-          {/* Marqueur de position utilisateur avec flèche MaterialIcons */}
+          {/* Marqueur de position utilisateur avec rotation dynamique */}
           {isMapReady && location && (
             <>
-              {/* Cercle de précision et point central avec ShapeSource pour la 3D */}
+              {/* Source de données pour le marqueur utilisateur */}
               <ShapeSource
-                id="user-location-base"
+                id="user-location-source"
                 shape={{
                   type: "Feature",
-                  properties: {},
                   geometry: {
                     type: "Point",
                     coordinates: [location.longitude, location.latitude],
                   },
+                  properties: {
+                    heading: currentHeading || 0,
+                  },
                 }}
               >
-                {/* Cercle de précision */}
                 <CircleLayer
                   id="user-accuracy-circle"
                   style={{
@@ -373,54 +386,64 @@ export default function MapContainer({
                     circleColor: "rgba(0, 122, 255, 0.1)",
                     circleStrokeColor: "rgba(0, 122, 255, 0.3)",
                     circleStrokeWidth: 1,
-                    circlePitchAlignment: "map", // S'adapte à l'inclinaison 3D
+                    circlePitchAlignment: "map", // S'adapte à l'inclinaison de la carte
                   }}
                 />
 
-                {/* Point de position */}
                 <CircleLayer
                   id="user-location-dot"
                   style={{
-                    circleRadius: 8,
+                    circleRadius: 18, // Cercle plus grand
                     circleColor: "#007AFF",
                     circleStrokeColor: "white",
-                    circleStrokeWidth: 2,
-                    circlePitchAlignment: "map", // S'adapte à l'inclinaison 3D
+                    circleStrokeWidth: 3,
+                    // S'adapte à l'inclinaison de la carte
                   }}
                 />
+                <PointAnnotation
+                  id="user-location-arrow"
+                  coordinate={[location.longitude, location.latitude]}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                >
+                  <View
+                    style={{
+                      width: 34,
+                      height: 34,
+                      justifyContent: "center",
+                      alignItems: "center",
+                    }}
+                  >
+                    <ArrowIcon
+                      size={24}
+                      color="white"
+                      styleTransform={[{ rotate: `${currentHeading || 0}deg` }]}
+                    />
+                  </View>
+                </PointAnnotation>
               </ShapeSource>
-
-              {/* Flèche de navigation */}
+              {/* 
               <PointAnnotation
                 id="user-navigation-arrow"
                 coordinate={[location.longitude, location.latitude]}
+                anchor={{ x: 0.5, y: 0.5 }}
               >
-                <Animated.View
-                  style={[
-                    styles.navigationArrowContainer,
-                    {
+                <View style={styles.navigationArrowContainer}>
+                  <MaterialIcons 
+                    name="navigation" 
+                    size={24} 
+                    color="#FFFFFF"
+                    style={{
                       transform: [
                         {
-                          rotate: `${
-                            compassMode === "heading"
-                              ? 0 // En mode heading, la carte tourne avec le téléphone, la flèche reste pointée vers le nord
-                              : (heading !== 0 ? heading : currentHeading || 0) // En mode normal, seule la flèche tourne selon l'orientation
-                          }deg`,
+                          rotate: `${currentHeading || 0}deg`,
                         },
                       ],
-                    },
-                  ]}
-                >
-                  <View style={styles.navigationArrowBackground}>
-                    <MaterialIcons
-                      name="navigation"
-                      size={22}
-                      color="white"
-                      style={styles.navigationIcon}
-                    />
-                  </View>
-                </Animated.View>
-              </PointAnnotation>
+                      elevation: 10,
+                      zIndex: 10,
+                    }}
+                  />
+                </View>
+              </PointAnnotation> */}
             </>
           )}
 
@@ -714,11 +737,22 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   navigationArrowContainer: {
-    width: 40,
-    height: 40,
+    width: 34,
+    height: 34,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "transparent",
+    backgroundColor: "rgba(0, 0, 0, 0.8)", // Fond plus opaque
+    borderRadius: 17,
+    borderWidth: 2,
+    borderColor: "#FFFFFF", // Bordure blanche plus visible
+    elevation: 8, // Android
+    shadowColor: "#000", // iOS
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.5,
+    shadowRadius: 5,
   },
   navigationArrowBackground: {
     width: 32,
@@ -735,11 +769,6 @@ const styles = StyleSheet.create({
     },
     shadowOpacity: 0.35,
     shadowRadius: 3.84,
-  },
-  navigationIcon: {
-    textShadowColor: "rgba(0, 0, 0, 0.3)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
   },
   userLocationMarker: {
     width: 40,

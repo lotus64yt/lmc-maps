@@ -1,0 +1,17 @@
+{
+  "java.enabled": false,
+  "java.import.gradle.enabled": false,
+  "java.gradle.buildServer.enabled": "off",
+  "java.configuration.updateBuildConfiguration": "disabled",
+  "redhat.telemetry.enabled": false,
+  "java.autobuild.enabled": false,
+  "java.compile.nullAnalysis.mode": "disabled",
+  "gradle.nestedProjects": false,
+  "files.exclude": {
+    "**/.gradle": true,
+    "**/build": true,
+    "**/.settings": true,
+    "**/.project": true,
+    "**/.classpath": true
+  }
+}

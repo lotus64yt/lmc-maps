@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback, memo } from "react";
 import {
   StyleSheet,
   TextInput,
@@ -25,6 +25,145 @@ import { OverpassService, OverpassPOI } from "../services/OverpassService";
 import OverPassAmenityList, {
   AmenityType,
 } from "../assets/overpass/amenityList";
+
+// Composant optimisé pour les éléments de la liste
+const SearchResultItem = memo(({ 
+  item, 
+  onSelectResult, 
+  onShowRoute, 
+  onAddNavigationStop, 
+  onAddStep, 
+  isNavigating,
+  getCategoryColor,
+  onDeleteHistoryItem 
+}: {
+  item: SearchResult;
+  onSelectResult: (result: SearchResult) => void;
+  onShowRoute?: (result: SearchResult) => void;
+  onAddNavigationStop?: (result: SearchResult) => void;
+  onAddStep?: (result: SearchResult) => void;
+  isNavigating: boolean;
+  getCategoryColor: (type: AmenityType) => string;
+  onDeleteHistoryItem: (id: string) => void;
+}) => {
+  // Si c'est un en-tête de catégorie
+  if (item.amenityType?.startsWith("category_")) {
+    const categoryType = item.amenityType.replace("category_", "") as AmenityType;
+    return (
+      <View style={styles.categoryHeader}>
+        <Text
+          style={[
+            styles.categoryTitle,
+            { color: getCategoryColor(categoryType) },
+          ]}
+        >
+          {item.title}
+        </Text>
+        <Text style={styles.categorySubtitle}>{item.subtitle}</Text>
+      </View>
+    );
+  }
+
+  // Rendu normal pour les autres éléments
+  return (
+    <TouchableOpacity
+      style={styles.resultItem}
+      onPress={() => onSelectResult(item)}
+    >
+      <View style={styles.resultContent}>
+        <Icon
+          name={
+            item.type === "history"
+              ? "history"
+              : item.type === "nominatim"
+              ? "place"
+              : "local-activity"
+          }
+          size={20}
+          color={
+            item.type === "history"
+              ? "#FF9500"
+              : item.type === "nominatim"
+              ? "#666"
+              : "#9C27B0"
+          }
+          style={styles.resultIcon}
+        />
+        <View style={styles.resultText}>
+          <View style={styles.titleRow}>
+            <Text style={styles.resultTitle} numberOfLines={1}>
+              {item.title}
+            </Text>
+            {item.type === "history" &&
+              item.searchCount &&
+              item.searchCount > 1 && (
+                <View style={styles.searchCountBadge}>
+                  <Text style={styles.searchCountText}>
+                    {item.searchCount}
+                  </Text>
+                </View>
+              )}
+          </View>
+          <Text style={styles.resultSubtitle} numberOfLines={2}>
+            {item.subtitle}
+          </Text>
+        </View>
+        {(item.type === "nominatim" || item.type === "history") &&
+          onShowRoute &&
+          !isNavigating && (
+            <TouchableOpacity
+              style={styles.routeButton}
+              onPress={() => onShowRoute(item)}
+            >
+              <Icon name="directions" size={20} color="#007AFF" />
+            </TouchableOpacity>
+          )}
+        {/* Bouton pour ajouter un arrêt pendant la navigation */}
+        {isNavigating &&
+          (item.type === "nominatim" ||
+            item.type === "history" ||
+            item.type === "overpass") &&
+          onAddNavigationStop && (
+            <TouchableOpacity
+              style={styles.navigationStopButton}
+              onPress={() => {
+                Vibration.vibrate(50);
+                onAddNavigationStop(item);
+              }}
+            >
+              <Icon name="add-location" size={20} color="#FF9500" />
+            </TouchableOpacity>
+          )}
+        {(item.type === "nominatim" ||
+          item.type === "history" ||
+          item.type === "overpass") &&
+          onAddStep &&
+          !isNavigating && (
+            <TouchableOpacity
+              style={styles.addStepButton}
+              onPress={() => {
+                Vibration.vibrate(50);
+                onAddStep(item);
+              }}
+            >
+              <Icon name="add" size={20} color="#4CAF50" />
+            </TouchableOpacity>
+          )}
+        {item.type === "history" && (
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={() => {
+              Vibration.vibrate(50);
+              onDeleteHistoryItem(item.id);
+            }}
+          >
+            <Icon name="close" size={16} color="#999" />
+          </TouchableOpacity>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+});
 
 interface SearchResult {
   id: string;
@@ -334,8 +473,15 @@ export default function ExpandableSearch({
     // Ordre des catégories
     const categoryOrder: AmenityType[] = [
       "Sustenance",
-      "Education",
+      "Education", 
       "Transportation",
+      "Finance",
+      "Healthcare",
+      "Entertainment",
+      "PublicService",
+      "Facilities",
+      "Waste",
+      "Other"
     ];
 
     categoryOrder.forEach((category) => {
@@ -392,7 +538,122 @@ export default function ExpandableSearch({
     }
   };
 
-  const getCategoryEmoji = (type: AmenityType): string => {
+  // Callbacks mémorisés pour optimiser les performances
+  const handleSelectResultCallback = useCallback((result: SearchResult) => {
+    Vibration.vibrate(50);
+
+    // Ignorer les clics sur les en-têtes de catégorie
+    if (result.amenityType?.startsWith("category_")) {
+      return;
+    }
+
+    if (result.type === "overpass") {
+      // Pour les POI Overpass, faire d'abord la recherche puis ouvrir le POIDrawer
+      if (result.amenityType && onShowPOI && userLocation) {
+        // Faire la recherche POI avant d'ouvrir le drawer
+        handlePOISearch(result.amenityType);
+        setIsExpanded(false);
+        setSearchResults([]);
+        return;
+      }
+    }
+
+    // Ajouter à l'historique si ce n'est pas déjà un élément d'historique
+    if (result.type !== "history") {
+      RouteHistoryService.addToHistory({
+        title: result.title,
+        subtitle: result.subtitle,
+        latitude: result.latitude,
+        longitude: result.longitude,
+      }).then(() => {
+        loadHistory(); // Recharger l'historique
+      });
+    } else {
+      // Si c'est un élément d'historique, l'incrémenter
+      RouteHistoryService.addToHistory({
+        title: result.title,
+        subtitle: result.subtitle,
+        latitude: result.latitude,
+        longitude: result.longitude,
+      }).then(() => {
+        loadHistory(); // Recharger l'historique
+      });
+    }
+
+    onSelectLocation(result);
+    setIsExpanded(false);
+    setSearchResults([]);
+  }, [onShowPOI, userLocation, onSelectLocation]);
+
+  const handleShowRouteCallback = useCallback((item: SearchResult) => {
+    if (!onShowRoute) return;
+    
+    // Ajouter à l'historique même quand on utilise le bouton route
+    if (item.type !== "history") {
+      RouteHistoryService.addToHistory({
+        title: item.title,
+        subtitle: item.subtitle,
+        latitude: item.latitude,
+        longitude: item.longitude,
+      }).then(() => {
+        loadHistory();
+      });
+    }
+
+    onShowRoute(item);
+    setIsExpanded(false);
+    setSearchResults([]);
+  }, [onShowRoute]);
+
+  const handleAddNavigationStopCallback = useCallback((item: SearchResult) => {
+    if (!onAddNavigationStop) return;
+    
+    // Ajouter à l'historique si ce n'est pas déjà fait
+    if (item.type !== "history") {
+      RouteHistoryService.addToHistory({
+        title: item.title,
+        subtitle: item.subtitle,
+        latitude: item.latitude,
+        longitude: item.longitude,
+      }).then(() => {
+        loadHistory();
+      });
+    }
+
+    onAddNavigationStop(item);
+    setIsExpanded(false);
+    setSearchResults([]);
+  }, [onAddNavigationStop]);
+
+  const handleAddStepCallback = useCallback((item: SearchResult) => {
+    if (!onAddStep) return;
+    
+    // Ajouter à l'historique si ce n'est pas déjà fait
+    if (item.type !== "history") {
+      RouteHistoryService.addToHistory({
+        title: item.title,
+        subtitle: item.subtitle,
+        latitude: item.latitude,
+        longitude: item.longitude,
+      }).then(() => {
+        loadHistory();
+      });
+    }
+
+    onAddStep(item);
+    setIsExpanded(false);
+    setSearchResults([]);
+  }, [onAddStep]);
+
+  const handleDeleteHistoryItemCallback = useCallback((id: string) => {
+    RouteHistoryService.removeFromHistory(id).then(() => {
+      loadHistory();
+      // Mettre à jour la liste actuelle si elle contient cet élément
+      setSearchResults((prev) => prev.filter((r) => r.id !== id));
+    });
+  }, []);
+
+  const getCategoryEmoji = useCallback((type: AmenityType): string => {
     switch (type) {
       case "Sustenance":
         return "🍽️";
@@ -400,23 +661,51 @@ export default function ExpandableSearch({
         return "🎓";
       case "Transportation":
         return "🚗";
+      case "Finance":
+        return "💰";
+      case "Healthcare":
+        return "🏥";
+      case "Entertainment":
+        return "🎭";
+      case "PublicService":
+        return "🏛️";
+      case "Facilities":
+        return "🚻";
+      case "Waste":
+        return "🗑️";
+      case "Other":
+        return "📍";
       default:
         return "📍";
     }
-  };
+  }, []);
 
-  const getCategoryColor = (type: AmenityType): string => {
+  const getCategoryColor = useCallback((type: AmenityType): string => {
     switch (type) {
       case "Sustenance":
-        return "#FF9500";
+        return "#FF9500"; // Orange
       case "Education":
-        return "#007AFF";
+        return "#007AFF"; // Bleu
       case "Transportation":
-        return "#34C759";
+        return "#34C759"; // Vert
+      case "Finance":
+        return "#FFD60A"; // Jaune doré
+      case "Healthcare":
+        return "#FF3B30"; // Rouge
+      case "Entertainment":
+        return "#AF52DE"; // Violet
+      case "PublicService":
+        return "#5856D6"; // Indigo
+      case "Facilities":
+        return "#48CAE4"; // Bleu clair
+      case "Waste":
+        return "#8E8E93"; // Gris
+      case "Other":
+        return "#FF6B6B"; // Rose
       default:
         return "#666";
     }
-  };
+  }, []);
 
   const getDisplayTitle = (result: NominatimSearchResult): string => {
     const address = result.address;
@@ -510,181 +799,35 @@ export default function ExpandableSearch({
     setSearchResults([]);
   };
 
-  const renderSearchResult = ({ item }: { item: SearchResult }) => {
-    // Si c'est un en-tête de catégorie
-    if (item.amenityType?.startsWith("category_")) {
-      const categoryType = item.amenityType.replace(
-        "category_",
-        ""
-      ) as AmenityType;
-      return (
-        <View style={styles.categoryHeader}>
-          <Text
-            style={[
-              styles.categoryTitle,
-              { color: getCategoryColor(categoryType) },
-            ]}
-          >
-            {item.title}
-          </Text>
-          <Text style={styles.categorySubtitle}>{item.subtitle}</Text>
-        </View>
-      );
-    }
+  // Fonction pour extraire la clé d'un élément
+  const keyExtractor = useCallback((item: SearchResult) => item.id, []);
 
-    // Rendu normal pour les autres éléments
-    return (
-      <TouchableOpacity
-        style={styles.resultItem}
-        onPress={() => handleSelectResult(item)}
-      >
-        <View style={styles.resultContent}>
-          <Icon
-            name={
-              item.type === "history"
-                ? "history"
-                : item.type === "nominatim"
-                ? "place"
-                : "local-activity"
-            }
-            size={20}
-            color={
-              item.type === "history"
-                ? "#FF9500"
-                : item.type === "nominatim"
-                ? "#666"
-                : "#9C27B0"
-            }
-            style={styles.resultIcon}
-          />
-          <View style={styles.resultText}>
-            <View style={styles.titleRow}>
-              <Text style={styles.resultTitle} numberOfLines={1}>
-                {item.title}
-              </Text>
-              {item.type === "history" &&
-                item.searchCount &&
-                item.searchCount > 1 && (
-                  <View style={styles.searchCountBadge}>
-                    <Text style={styles.searchCountText}>
-                      {item.searchCount}
-                    </Text>
-                  </View>
-                )}
-            </View>
-            <Text style={styles.resultSubtitle} numberOfLines={2}>
-              {item.subtitle}
-            </Text>
-          </View>
-          {(item.type === "nominatim" || item.type === "history") &&
-            onShowRoute &&
-            !isNavigating && (
-              <TouchableOpacity
-                style={styles.routeButton}
-                onPress={() => {
-                  // Ajouter à l'historique même quand on utilise le bouton route
-                  if (item.type !== "history") {
-                    RouteHistoryService.addToHistory({
-                      title: item.title,
-                      subtitle: item.subtitle,
-                      latitude: item.latitude,
-                      longitude: item.longitude,
-                    }).then(() => {
-                      loadHistory();
-                    });
-                  }
-
-                  onShowRoute(item);
-                  setIsExpanded(false);
-                  setSearchResults([]);
-                }}
-              >
-                <Icon name="directions" size={20} color="#007AFF" />
-              </TouchableOpacity>
-            )}
-          {/* Bouton pour ajouter un arrêt pendant la navigation */}
-          {isNavigating &&
-            (item.type === "nominatim" ||
-              item.type === "history" ||
-              item.type === "overpass") &&
-            onAddNavigationStop && (
-              <TouchableOpacity
-                style={styles.navigationStopButton}
-                onPress={() => {
-                  Vibration.vibrate(50);
-
-                  // Ajouter à l'historique si ce n'est pas déjà fait
-                  if (item.type !== "history") {
-                    RouteHistoryService.addToHistory({
-                      title: item.title,
-                      subtitle: item.subtitle,
-                      latitude: item.latitude,
-                      longitude: item.longitude,
-                    }).then(() => {
-                      loadHistory();
-                    });
-                  }
-
-                  onAddNavigationStop(item);
-                  setIsExpanded(false);
-                  setSearchResults([]);
-                }}
-              >
-                <Icon name="add-location" size={20} color="#FF9500" />
-              </TouchableOpacity>
-            )}
-          {(item.type === "nominatim" ||
-            item.type === "history" ||
-            item.type === "overpass") &&
-            onAddStep &&
-            !isNavigating && (
-              <TouchableOpacity
-                style={styles.addStepButton}
-                onPress={() => {
-                  Vibration.vibrate(50);
-
-                  // Ajouter à l'historique si ce n'est pas déjà fait
-                  if (item.type !== "history") {
-                    RouteHistoryService.addToHistory({
-                      title: item.title,
-                      subtitle: item.subtitle,
-                      latitude: item.latitude,
-                      longitude: item.longitude,
-                    }).then(() => {
-                      loadHistory();
-                    });
-                  }
-
-                  onAddStep(item);
-                  setIsExpanded(false);
-                  setSearchResults([]);
-                }}
-              >
-                <Icon name="add" size={20} color="#4CAF50" />
-              </TouchableOpacity>
-            )}
-          {item.type === "history" && (
-            <TouchableOpacity
-              style={styles.deleteButton}
-              onPress={() => {
-                Vibration.vibrate(50);
-
-                RouteHistoryService.removeFromHistory(item.id).then(() => {
-                  loadHistory();
-                  // Mettre à jour la liste actuelle si elle contient cet élément
-                  setSearchResults((prev) =>
-                    prev.filter((r) => r.id !== item.id)
-                  );
-                });
-              }}
-            >
-              <Icon name="close" size={16} color="#999" />
-            </TouchableOpacity>
-          )}
-        </View>
-      </TouchableOpacity>
-    );
-  };
+  const renderSearchResult = useCallback(
+    ({ item }: { item: SearchResult }) => (
+      <SearchResultItem
+        item={item}
+        onSelectResult={handleSelectResult}
+        onShowRoute={onShowRoute ? handleShowRouteCallback : undefined}
+        onAddNavigationStop={onAddNavigationStop ? handleAddNavigationStopCallback : undefined}
+        onAddStep={onAddStep ? handleAddStepCallback : undefined}
+        isNavigating={isNavigating}
+        getCategoryColor={getCategoryColor}
+        onDeleteHistoryItem={handleDeleteHistoryItemCallback}
+      />
+    ),
+    [
+      handleSelectResult,
+      handleShowRouteCallback,
+      handleAddNavigationStopCallback,
+      handleAddStepCallback,
+      isNavigating,
+      getCategoryColor,
+      handleDeleteHistoryItemCallback,
+      onShowRoute,
+      onAddNavigationStop,
+      onAddStep,
+    ]
+  );
 
   return (
     <>
@@ -891,9 +1034,15 @@ export default function ExpandableSearch({
                     : historyItems
                 }
                 renderItem={renderSearchResult}
-                keyExtractor={(item) => item.id}
+                keyExtractor={keyExtractor}
                 style={styles.resultsList}
                 showsVerticalScrollIndicator={false}
+                removeClippedSubviews={true}
+                maxToRenderPerBatch={10}
+                updateCellsBatchingPeriod={50}
+                initialNumToRender={15}
+                windowSize={5}
+                getItemLayout={undefined}
                 ListHeaderComponent={
                   searchMode === "address" &&
                   value.trim().length <= 2 &&
