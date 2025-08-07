@@ -14,7 +14,7 @@ import {
   Modal,
   Clipboard
 } from "react-native";
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import { MaterialIcons as Icon } from '@expo/vector-icons';
 import { SpeedLimitService } from '../services/SpeedLimitService';
 import * as Location from 'expo-location';
 import { NominatimService, NominatimReverseResult } from '../services/NominatimService';
@@ -138,7 +138,8 @@ export default function LocationInfoDrawer({
               break;
             }
           }
-        } catch (err) {continue;
+        } catch (err) {
+continue;
         }
       }
 
@@ -164,7 +165,8 @@ export default function LocationInfoDrawer({
               setPhotos(wikiPhotos);
             }
           }
-        } catch (err) {}
+        } catch (err) {
+}
       }
 
     } catch (err) {

@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
   Vibration,
 } from "react-native";
-import Icon from "react-native-vector-icons/MaterialIcons";
+import { MaterialIcons as Icon } from "@expo/vector-icons";
 import ParkingService, {
   ParkingSpot,
   ParkingSearchResult,
@@ -86,7 +86,8 @@ export default function ParkingDrawer({
 
   // Sélectionner un parking
   const handleParkingSelect = (parking: ParkingSpot) => {
-    Vibration.vibrate(50);setSelectedParking(parking);
+    Vibration.vibrate(50);
+setSelectedParking(parking);
     onParkingSelect(parking);
   };
 
@@ -186,7 +187,7 @@ export default function ParkingDrawer({
         <View style={styles.parkingHeader}>
           <View style={styles.parkingIconContainer}>
             <Icon
-              name={ParkingService.getParkingIcon(parking.type)}
+              name={ParkingService.getParkingIcon(parking.type) as any}
               size={24}
               color={isSelected ? "#007AFF" : "#666"}
             />

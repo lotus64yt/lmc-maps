@@ -10,7 +10,7 @@ import {
   ScrollView,
   Vibration
 } from "react-native";
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import { MaterialIcons as Icon } from '@expo/vector-icons';
 import { formatDuration, formatDistance } from '../utils/formatUtils';
 
 interface Destination {
@@ -270,7 +270,7 @@ export default function RouteDrawer({
                 onPress={() => handleTransportModeChange(mode.id)}
               >
                 <Icon 
-                  name={mode.icon} 
+                  name={mode.icon as any} 
                   size={24} 
                   color={selectedTransport === mode.id ? '#fff' : mode.color} 
                 />

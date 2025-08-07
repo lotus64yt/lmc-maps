@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, Modal, TouchableOpacity, StyleSheet } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import { MaterialIcons as Icon } from '@expo/vector-icons';
 
 const TRANSPORTS = [
   { id: 'driving', name: 'Voiture', icon: 'directions-car' },
@@ -31,7 +31,7 @@ export default function ResumeTripModal({
           <View style={styles.selectContainer}>
             {TRANSPORTS.map(t => (
               <TouchableOpacity key={t.id} style={[styles.selectItem, selected === t.id && styles.selected]} onPress={() => setSelected(t.id)}>
-                <Icon name={t.icon} size={22} color={selected === t.id ? '#007AFF' : '#888'} />
+                <Icon name={t.icon as any} size={22} color={selected === t.id ? '#007AFF' : '#888'} />
                 <Text style={[styles.selectText, selected === t.id && { color: '#007AFF', fontWeight: 'bold' }]}>{t.name}</Text>
               </TouchableOpacity>
             ))}

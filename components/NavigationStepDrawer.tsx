@@ -10,7 +10,7 @@ import {
   ScrollView,
   Vibration
 } from "react-native";
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import { MaterialIcons as Icon } from '@expo/vector-icons';
 import { NavigationStep } from '../types/RouteTypes';
 import { formatDistance, formatDurationFromSeconds } from '../utils/formatUtils';
 
@@ -163,7 +163,7 @@ export default function NavigationStepDrawer({
           <View style={styles.stepHeader}>
             <View style={[styles.maneuverIconContainer, { backgroundColor: getManeuverColor() + '20' }]}>
               <Icon 
-                name={getManeuverIcon(step.maneuver)} 
+                name={getManeuverIcon(step.maneuver) as any} 
                 size={32} 
                 color={getManeuverColor()} 
               />
@@ -187,7 +187,7 @@ export default function NavigationStepDrawer({
           <View style={styles.detailsContainer}>
             {step.streetName && (
               <View style={styles.detailRow}>
-                <Icon name="road" size={20} color="#666" />
+                <Icon name={"road" as any} size={20} color="#666" />
                 <Text style={styles.detailLabel}>Rue:</Text>
                 <Text style={styles.detailValue}>{step.streetName}</Text>
               </View>

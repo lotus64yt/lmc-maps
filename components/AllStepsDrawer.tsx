@@ -10,7 +10,7 @@ import {
   ScrollView,
   FlatList,
 } from "react-native";
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import { MaterialIcons as Icon } from '@expo/vector-icons';
 import { NavigationStep } from '../types/RouteTypes';
 import { NavigationInstructionService } from '../services/NavigationInstructionService';
 
@@ -157,10 +157,10 @@ export default function AllStepsDrawer({
             isCompletedStep && styles.completedStepIconCircle,
           ]}>
             {isCompletedStep ? (
-              <Icon name="check" size={16} color="white" />
+              <Icon name={"check" as any} size={16} color="white" />
             ) : (
               <Icon 
-                name={getManeuverIcon(item, index)} 
+                name={getManeuverIcon(item, index) as any} 
                 size={16} 
                 color={isCurrentStep ? 'white' : '#666'} 
               />

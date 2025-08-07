@@ -10,7 +10,7 @@ import {
   Modal,
   ActivityIndicator,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialIcons';
+import { MaterialIcons as Icon } from '@expo/vector-icons';
 import NavigationService from '../services/NavigationService';
 import { NavigationState } from '../types/RouteTypes';
 import { formatDistance, formatDurationFromSeconds } from '../utils/formatUtils';
@@ -93,7 +93,7 @@ export default function NavigationGuidance({ visible, onStop, onShowAllSteps, on
         <View style={styles.topGuidance}>
           <View style={styles.maneuverContainer}>
             <Icon
-              name={NavigationService.getManeuverIcon(navigationState.nextStep?.maneuver || 'straight')}
+              name={NavigationService.getManeuverIcon(navigationState.nextStep?.maneuver || 'straight') as any}
               size={32}
               color="#007AFF"
             />
