@@ -18,6 +18,7 @@
     "expo": "~52.0.41",
     "expo-dev-client": "~5.0.20",
     "expo-location": "~18.0.10",
+    "expo-modules-core": "^2.5.0",
     "expo-notifications": "~0.29.14",
     "expo-sensors": "~14.0.2",
     "expo-status-bar": "~2.0.1",
