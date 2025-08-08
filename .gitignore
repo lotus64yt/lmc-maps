@@ -35,10 +35,6 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
-# System
-/android
-/ios
-
 # Notes
 notes/
 *.md
