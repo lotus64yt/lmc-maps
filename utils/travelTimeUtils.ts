@@ -19,8 +19,8 @@ export class TravelTimeExamples {
         mode: 'walking'
       });
       
-      console.log(`Temps de marche: ${Math.round(result.duration / 60)} minutes`);
-      console.log(`Distance: ${Math.round(result.distance)} mètres`);
+      // // debugLog.info(`Walk time: ${Math.round(result.duration / 60)} minutes`);
+      // // debugLog.info(`Distance: ${Math.round(result.distance)} meters`);
     } catch (error) {
       console.error('Erreur:', error);
     }
@@ -42,11 +42,13 @@ export class TravelTimeExamples {
         userLocation,
         waypoints,
         'driving'
-      );console.log(`- Durée: ${Math.round(result.totalDuration / 60)} minutes`);
-      console.log(`- Distance: ${Math.round(result.totalDistance / 1000)} km`);
+      );
+      
+      // // debugLog.info(`- Duration: ${Math.round(result.totalDuration / 60)} minutes`);
+      // // debugLog.info(`- Distance: ${Math.round(result.totalDistance / 1000)} km`);
       
       result.segments.forEach((segment, index) => {
-        console.log(`Segment ${index + 1}: ${Math.round(segment.duration / 60)}min, ${Math.round(segment.distance)}m`);
+        // // debugLog.info(`Segment ${index + 1}: ${Math.round(segment.duration / 60)}min, ${Math.round(segment.distance)}m`);
       });
     } catch (error) {
       console.error('Erreur:', error);
@@ -61,9 +63,8 @@ export class TravelTimeExamples {
     const destination = { latitude: 48.8606, longitude: 2.3376 };
     
     try {
-      const comparison = await TravelTimeService.compareTravelModes(origin, destination);Object.entries(comparison).forEach(([mode, result]) => {
-        const minutes = Math.round(result.duration / 60);
-        const meters = Math.round(result.distance);});
+      const comparison = await TravelTimeService.compareTravelModes(origin, destination);
+      
     } catch (error) {
       console.error('Erreur:', error);
     }
@@ -83,10 +84,13 @@ export class TravelTimeExamples {
         mode: 'driving'
       });
       
-      const normalTime = Math.round(result.duration / 60);
-      const trafficTime = result.durationInTraffic ? Math.round(result.durationInTraffic / 60) : normalTime;console.log(`Temps avec trafic: ${trafficTime} minutes`);
+      // const trafficTime = result.durationInTraffic ? Math.round(result.durationInTraffic / 60) : normalTime; // // debugLog.info(`Traffic time: ${trafficTime} minutes`);
       
-      if (trafficTime > normalTime) {}
+      const normalTime = Math.round(result.duration / 60);
+      const trafficTime = result.durationInTraffic ? Math.round(result.durationInTraffic / 60) : normalTime;
+      
+      if (trafficTime > normalTime) {
+}
     } catch (error) {
       console.error('Erreur:', error);
     }

@@ -130,18 +130,16 @@ export default function SpeedLimitIndicator({ visible, currentLocation }: SpeedL
 
 const styles = StyleSheet.create({
   container: {
-    position: 'absolute',
-    top: 100, // Positionné juste sous le rectangle des étapes
-    left: 12,
-    right: 12,
-    alignItems: 'flex-end', // Aligné à droite comme une languette
-    zIndex: 999, // Juste en dessous du guidage de navigation
+    position: 'relative', // Position relative par rapport au parent NavigationGuidance
+    alignItems: 'flex-end', // Aligné à droite
+    paddingRight: 12,
+    paddingTop: 8, // Espacement avec le bandeau du dessus
   },
   speedContainer: {
     backgroundColor: 'white',
     borderRadius: 8,
-    borderTopLeftRadius: 0, // Pas d'arrondi en haut à gauche pour effet languette
-    borderTopRightRadius: 0, // Pas d'arrondi en haut à droite
+    borderTopLeftRadius: 8, // Redonner les arrondis du haut
+    borderTopRightRadius: 8, 
     paddingHorizontal: 12,
     paddingVertical: 6,
     alignItems: 'center',
@@ -151,7 +149,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
     marginBottom: 6,
-    width: 80, // Largeur fixe pour l'effet languette
+    width: 80, // Largeur fixe
     flexDirection: 'row',
     justifyContent: 'center',
   },

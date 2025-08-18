@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useLocationService } from "../services/LocationService";
 import { useRouteService, Coordinate } from "../services/RouteService";
+import { RouteDirectionService, RouteDirectionCalculation } from "../services/RouteDirectionService";
 
 export function useLocationAndNavigation() {
   // Utiliser le service de localisation
@@ -8,6 +9,15 @@ export function useLocationAndNavigation() {
   
   // Utiliser le service de routes
   const routeService = useRouteService();
+
+  // États pour la direction de la route
+  const [routeDirection, setRouteDirection] = useState<RouteDirectionCalculation>({
+    bearing: 0,
+    isOnRoute: false
+  });
+  
+  // Référence pour la position précédente (pour éviter les calculs trop fréquents)
+  const previousLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
 
   // Démarrer automatiquement le suivi de localisation
   useEffect(() => {
@@ -18,6 +28,46 @@ export function useLocationAndNavigation() {
       locationService.stopLocationTracking();
     };
   }, []);
+
+  // Calculer la direction de la route quand la position ou la route change
+  useEffect(() => {
+    if (locationService.location && routeService.routeCoords.length > 0) {
+      const currentLocation = {
+        latitude: locationService.location.latitude,
+        longitude: locationService.location.longitude
+      };
+
+      // Éviter les calculs trop fréquents en vérifiant si la position a suffisamment changé
+      if (previousLocationRef.current) {
+        const distance = RouteDirectionService.calculateDistance(
+          previousLocationRef.current,
+          currentLocation
+        );
+        
+        // Ne recalculer que si l'utilisateur a bougé d'au moins 5 mètres
+        if (distance < 5) {
+          return;
+        }
+      }
+
+      // Calculer la nouvelle direction de la route avec lissage
+      const newRouteDirection = RouteDirectionService.calculateSmoothedRouteDirection(
+        currentLocation,
+        routeService.routeCoords,
+        30 // Distance de lissage en mètres
+      );
+
+      setRouteDirection(newRouteDirection);
+      previousLocationRef.current = currentLocation;
+    } else if (routeService.routeCoords.length === 0) {
+      // Pas de route active, réinitialiser la direction
+      setRouteDirection({
+        bearing: 0,
+        isOnRoute: false
+      });
+      previousLocationRef.current = null;
+    }
+  }, [locationService.location, routeService.routeCoords]);
 
   // Fonction pour gérer les long press sur la carte
   const handleLongPress = async (coordinate: Coordinate) => {
@@ -103,6 +153,9 @@ export function useLocationAndNavigation() {
     directLineCoords: routeService.directLineCoords,
     nearestRoadPoint: routeService.nearestRoadPoint,
     hasDirectLineSegment: routeService.hasDirectLineSegment,
+    
+    // Nouvelle propriété pour la direction de la route
+    routeDirection: routeDirection,
     
     // Méthodes
     handleLongPress,

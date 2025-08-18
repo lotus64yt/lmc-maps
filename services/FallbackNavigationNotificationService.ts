@@ -25,13 +25,11 @@ export class FallbackNavigationNotificationService {
   // Démarrer les notifications de navigation
   static async startNavigationNotifications(): Promise<void> {
     this.isNavigationActive = true;
-    console.log('Navigation notifications started (fallback mode)');
   }
 
   // Arrêter les notifications de navigation
   static async stopNavigationNotifications(): Promise<void> {
     this.isNavigationActive = false;
-    console.log('Navigation notifications stopped (fallback mode)');
   }
 
   // Afficher une alerte de navigation

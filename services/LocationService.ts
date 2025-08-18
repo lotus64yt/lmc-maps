@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as Location from "expo-location";
 import { Magnetometer } from "expo-sensors";
-import { Animated, Platform } from "react-native";
+import { Animated, Platform, Easing } from "react-native";
 
 export interface LocationService {
   location: Location.LocationObjectCoords | null;
@@ -12,12 +12,15 @@ export interface LocationService {
   startLocationTracking: () => Promise<void>;
   stopLocationTracking: () => void;
   requestLocationPermission: () => Promise<boolean>;
+  error: string | null;
+  isLoading: boolean;
+  accuracy: number | null;
 }
 
 class HeadingFilter {
   private filteredHeading = 0;
-  private alpha = 0.15;
-  private threshold = 1.5;
+  private alpha = 0.3; // Augmenter pour plus de réactivité
+  private threshold = 1.0; // Réduire le seuil pour plus de sensibilité
   private initialized = false;
 
   update(newHeading: number): number {
@@ -59,6 +62,9 @@ export function useLocationService(): LocationService {
   const [location, setLocation] =
     useState<Location.LocationObjectCoords | null>(null);
   const [heading, setHeading] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [accuracy, setAccuracy] = useState<number | null>(null);
   const headingAnimated = useRef(new Animated.Value(0)).current;
 
   const headingFilter = useRef(new HeadingFilter()).current;
@@ -90,7 +96,8 @@ export function useLocationService(): LocationService {
   function updateHeadingSmooth(newHeading: number) {
     const now = Date.now();
 
-    if (now - lastUpdate.current < 100) return; // Augmenter l'intervalle à 100ms
+    // Intervalle plus court pour une meilleure réactivité en navigation
+    if (now - lastUpdate.current < 50) return; // Réduire l'intervalle à 50ms pour plus de fluidité
     lastUpdate.current = now;
 
     const filteredHeading = headingFilter.update(newHeading);
@@ -109,9 +116,8 @@ export function useLocationService(): LocationService {
 
     const newAnimatedValue = currentAnimatedValue + bestDiff;
 
-    if (Math.abs(bestDiff) < 2) return; // Réduire le seuil de 1 à 2 degrés
+    if (Math.abs(bestDiff) < 1) return; // Réduire le seuil à 1 degré pour plus de fluidité
 
-    console.log("🧭 Mise à jour du cap:", filteredHeading.toFixed(1), "°");
     setHeading(filteredHeading);
     lastAnimatedValue.current = newAnimatedValue;
 
@@ -119,21 +125,25 @@ export function useLocationService(): LocationService {
       animationInProgress.current = true;
       Animated.timing(headingAnimated, {
         toValue: newAnimatedValue,
-        duration: 300, // Augmenter la durée pour une animation plus fluide
+        duration: 500, // Durée plus longue pour une animation plus fluide
         useNativeDriver: true,
+        // Ajouter une courbe d'animation plus fluide
+        easing: Easing.out(Easing.cubic),
       }).start(() => {
         animationInProgress.current = false;
       });
     }
   }
 
-  const startLocationTracking = async () => {const granted = await requestLocationPermission();
+  const startLocationTracking = async () => {
+const granted = await requestLocationPermission();
     if (!granted) {
       console.error("❌ Permissions de localisation refusées");
       return;
     }
 
-    try {// Essayer plusieurs modes pour obtenir la position initiale
+    try {
+// Essayer plusieurs modes pour obtenir la position initiale
       let initialPosition;
       const accuracyModes = [
         { name: "BestForNavigation", mode: Location.Accuracy.BestForNavigation },
@@ -143,18 +153,22 @@ export function useLocationService(): LocationService {
       ];
       
       for (const { name, mode } of accuracyModes) {
-        try {initialPosition = await Location.getCurrentPositionAsync({
+        try {
+initialPosition = await Location.getCurrentPositionAsync({
             accuracy: mode,
             timeInterval: 5000,
-          });setLocation(initialPosition.coords);
+          });
+setLocation(initialPosition.coords);
           break;
-        } catch (modeError) {if (name === "Low") {
+        } catch (modeError) {
+if (name === "Low") {
             // Si même le mode Low échoue, essayer avec la dernière position connue
             try {
               const lastKnown = await Location.getLastKnownPositionAsync({
                 maxAge: 600000, // 10 minutes
               });
-              if (lastKnown) {setLocation(lastKnown.coords);
+              if (lastKnown) {
+setLocation(lastKnown.coords);
                 initialPosition = lastKnown;
               }
             } catch (lastKnownError) {
@@ -166,16 +180,20 @@ export function useLocationService(): LocationService {
 
       if (!initialPosition) {
         throw new Error("Impossible d'obtenir une position avec tous les modes de précision");
-      }locationSub.current = await Location.watchPositionAsync(
+      }
+locationSub.current = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.BestForNavigation,
           distanceInterval: 1,
           timeInterval: 1000,
         },
-        (loc) => {setLocation(loc.coords);
+        (loc) => {
+setLocation(loc.coords);
         }
-      );// Vérifier la disponibilité du magnétomètre
-      const isAvailable = await Magnetometer.isAvailableAsync();if (!isAvailable) {
+      );
+// Vérifier la disponibilité du magnétomètre
+      const isAvailable = await Magnetometer.isAvailableAsync();
+if (!isAvailable) {
         console.warn("⚠️ Magnétomètre non disponible sur cet appareil");
         // Continuer sans le cap magnétique
         return;
@@ -186,14 +204,17 @@ export function useLocationService(): LocationService {
       magnetometerSub.current = Magnetometer.addListener(({ x, y, z }) => {
         const rawHeading = calculateHeading(x, y, z);
         updateHeadingSmooth(rawHeading);
-      });} catch (error) {
+      });
+} catch (error) {
       console.error("❌ Erreur lors du démarrage du suivi:", error);
       
       // Essayer une approche de récupération avec un mode plus permissif
-      try {const fallbackPosition = await Location.getCurrentPositionAsync({
+      try {
+const fallbackPosition = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Lowest,
           timeInterval: 15000, // 15 secondes de timeout
-        });setLocation(fallbackPosition.coords);
+        });
+setLocation(fallbackPosition.coords);
         
         // Essayer de démarrer le suivi avec des paramètres moins exigeants
         locationSub.current = await Location.watchPositionAsync(
@@ -203,20 +224,25 @@ export function useLocationService(): LocationService {
             timeInterval: 2000,
           },
           (loc) => setLocation(loc.coords)
-        );} catch (fallbackError) {
+        );
+} catch (fallbackError) {
         console.error("❌ Échec de la récupération:", fallbackError);
         
         // Dernier recours: essayer de démarrer le suivi sans position initiale
-        try {locationSub.current = await Location.watchPositionAsync(
+        try {
+locationSub.current = await Location.watchPositionAsync(
             {
               accuracy: Location.Accuracy.Low,
               distanceInterval: 10,
               timeInterval: 5000,
             },
-            (loc) => {setLocation(loc.coords);
+            (loc) => {
+setLocation(loc.coords);
             }
-          );// Démarrer le magnétomètre même sans position initialeconst isAvailable = await Magnetometer.isAvailableAsync();
-          console.log("🧭 Magnétomètre disponible (récupération):", isAvailable);
+          );
+// Démarrer le magnétomètre même sans position initiale
+const isAvailable = await Magnetometer.isAvailableAsync();
+          // // debugLog.info("Magnétomètre disponible:", isAvailable);
           
           if (isAvailable) {
             Magnetometer.setUpdateInterval(100);
@@ -251,12 +277,14 @@ export function useLocationService(): LocationService {
     // Démarrer le magnétomètre immédiatement au montage du composant
     const initMagnetometer = async () => {
       try {
-        const isAvailable = await Magnetometer.isAvailableAsync();if (isAvailable) {
+        const isAvailable = await Magnetometer.isAvailableAsync();
+if (isAvailable) {
           Magnetometer.setUpdateInterval(100);
           magnetometerSub.current = Magnetometer.addListener(({ x, y, z }) => {
             const rawHeading = calculateHeading(x, y, z);
             updateHeadingSmooth(rawHeading);
-          });} else {
+          });
+} else {
           console.warn("⚠️ Magnétomètre non disponible sur cet appareil");
         }
       } catch (error) {
@@ -278,5 +306,8 @@ export function useLocationService(): LocationService {
     startLocationTracking,
     stopLocationTracking,
     requestLocationPermission,
+    error,
+    isLoading,
+    accuracy,
   };
 }

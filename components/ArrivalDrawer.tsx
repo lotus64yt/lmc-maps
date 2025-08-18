@@ -161,7 +161,6 @@ continue;
 
     // Vérifier si on est à Paris dès le début - TOUJOURS tester les coordonnées
     const inParis = ParkingService.isInParis(coord.latitude, coord.longitude);
-console.log(`🅿️ fetchDestinationInfo - Bounds Paris: N:48.9021 S:48.8155 E:2.4699 W:2.2242`);
 setIsInParis(inParis);
 
     try {
@@ -230,7 +229,6 @@ onFindParking(destination.coordinate);
   useEffect(() => {
     if (visible && destination?.coordinate && dataLoaded) {
       const inParis = ParkingService.isInParis(destination.coordinate.latitude, destination.coordinate.longitude);
-      console.log(`🅿️ Vérification Paris (dataLoaded=true): ${inParis}`);
       if (inParis !== isInParis) {
 setIsInParis(inParis);
       }
@@ -250,12 +248,12 @@ setIsInParis(inParis);
       const tolerance = 0.0001; // ~10 mètres de tolérance
       
       if (latDiff > tolerance || lonDiff > tolerance) {
-console.log(`🔄 Ancienne: ${currentLatLng}, Nouvelle: ${newLatLng}`);
-        setDataLoaded(false);
-        setLocationInfo(null);
-        setPhotos([]);
-        setError(null);
-        setIsInParis(false); // Seulement réinitialiser si c'est vraiment une nouvelle destination
+        // // debugLog.info(`Old: ${currentLatLng}, New: ${newLatLng}`);
+         setDataLoaded(false);
+         setLocationInfo(null);
+         setPhotos([]);
+         setError(null);
+         setIsInParis(false); // Seulement réinitialiser si c'est vraiment une nouvelle destination
       } else {
 }
     }
@@ -273,7 +271,7 @@ if (destination?.coordinate) {
     if (visible) {
       // Effacer les points d'étapes quand on arrive à destination
       if (onClearSteps) {
-        console.log('🗑️ Effacement des étapes de navigation (arrivée à destination)');
+        // // debugLog.info('Clearing navigation steps (arrival)');
         onClearSteps();
       }
 

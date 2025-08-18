@@ -61,7 +61,8 @@ export class NavigationNotificationService {
         finalStatus = status;
       }
 
-      if (finalStatus !== 'granted') {return false;
+      if (finalStatus !== 'granted') {
+return false;
       }
 
       // Configuration pour Android
@@ -78,11 +79,13 @@ export class NavigationNotificationService {
             enableLights: true,
             enableVibrate: true,
           });
-        } catch (channelError) {}
+        } catch (channelError) {
+}
       } 
 
       return true;
-    } catch (error) {return false;
+    } catch (error) {
+return false;
     }
   }
 
@@ -95,7 +98,8 @@ export class NavigationNotificationService {
       stepIndex: -1,
       progressPercentage: 0,
       lastUpdateTime: 0,
-    };}
+    };
+}
 
   // Arrêter les notifications de navigation
   static async stopNavigationNotifications(): Promise<void> {
@@ -112,9 +116,11 @@ export class NavigationNotificationService {
         await Notifications.dismissNotificationAsync(this.notificationId);
         this.notificationId = null;
       }
-    } catch (error) {}
+    } catch (error) {
+}
     
-    this.lastNotificationContent = null;}
+    this.lastNotificationContent = null;
+}
 
   // Vérifier si une mise à jour est nécessaire
   private static shouldUpdateNotification(
@@ -125,21 +131,25 @@ export class NavigationNotificationService {
     const timeSinceLastUpdate = now - this.lastUpdateData.lastUpdateTime;
 
     // Toujours mettre à jour lors du changement d'étape
-    if (progress.currentStepIndex !== this.lastUpdateData.stepIndex) {return true;
+    if (progress.currentStepIndex !== this.lastUpdateData.stepIndex) {
+return true;
     }
 
     // Mettre à jour si la distance change significativement
     const distanceChange = Math.abs(currentStep.distance - this.lastUpdateData.distance);
-    if (distanceChange >= this.UPDATE_THRESHOLDS.DISTANCE_CHANGE) {return true;
+    if (distanceChange >= this.UPDATE_THRESHOLDS.DISTANCE_CHANGE) {
+return true;
     }
 
     // Mettre à jour si le pourcentage de progression change significativement
     const progressChange = Math.abs(progress.progressPercentage - this.lastUpdateData.progressPercentage);
-    if (progressChange >= this.UPDATE_THRESHOLDS.SIGNIFICANT_PROGRESS) {return true;
+    if (progressChange >= this.UPDATE_THRESHOLDS.SIGNIFICANT_PROGRESS) {
+return true;
     }
 
     // Mettre à jour périodiquement (mais pas trop souvent)
-    if (timeSinceLastUpdate >= this.UPDATE_THRESHOLDS.TIME_INTERVAL) {return true;
+    if (timeSinceLastUpdate >= this.UPDATE_THRESHOLDS.TIME_INTERVAL) {
+return true;
     }
 
     return false;
@@ -237,8 +247,8 @@ export class NavigationNotificationService {
         stepIndex: progress.currentStepIndex,
         progressPercentage: progress.progressPercentage,
         lastUpdateTime: Date.now(),
-      };} catch (error) {
-      console.error('Erreur lors de la mise à jour de la notification:', error);
+      };
+} catch (error) {
     }
   }
 
@@ -357,7 +367,6 @@ export class NavigationNotificationService {
       }, 5000);
 
     } catch (error) {
-      console.error('Erreur lors de l\'affichage de la notification d\'arrivée:', error);
     }
   }
 
@@ -395,7 +404,8 @@ export class NavigationNotificationService {
         this.updateThrottleTimeout = null;
       }
       
-    } catch (error) {}
+    } catch (error) {
+}
   }
 
   // Obtenir des statistiques sur les mises à jour
@@ -411,3 +421,5 @@ export class NavigationNotificationService {
     };
   }
 }
+
+// Removed debug console.log lines in this file to silence logs in production.

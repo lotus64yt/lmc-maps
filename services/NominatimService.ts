@@ -134,7 +134,7 @@ export class NominatimService {
         (road.startsWith('a') && /^\d+$/.test(road.slice(1))) ||
         road.includes('motorway')
       ) {
-        return 16;
+        return 10;
       }
 
       // Routes nationales

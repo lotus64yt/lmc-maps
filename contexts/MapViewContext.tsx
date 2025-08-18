@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useRef, useState, ReactNode, useCallback } from 'react';
+import * as React from 'react';
+import { createContext, useContext, useRef, useState, ReactNode, useCallback } from 'react';
 import { MapView } from '@rnmapbox/maps';
 
 export interface CameraConfig {
@@ -73,18 +74,21 @@ export function MapViewProvider({
   // Cleanup effect pour éviter les ViewTagResolver errors
   React.useEffect(() => {
     return () => {
-      if (mapRef.current) {}
+      if (mapRef.current) {
+}
     };
   }, []);
 
   // Fonction principale pour configurer la caméra
   const setCameraConfig = (config: CameraConfig, forced: boolean = false, controllerId?: string) => {
     // Si les animations sont verrouillées et que ce n'est pas forcé, ignorer
-    if (isAnimationLocked && !forced) {return;
+    if (isAnimationLocked && !forced) {
+return;
     }
 
     // Si un drawer contrôle la caméra et que cette demande ne vient pas du contrôleur actuel, ignorer
-    if (activeDrawerController && controllerId !== activeDrawerController && !forced) {return;
+    if (activeDrawerController && controllerId !== activeDrawerController && !forced) {
+return;
     }
 
     let hasChanged = false;
@@ -109,7 +113,8 @@ export function MapViewProvider({
       hasChanged = true;
     }
     
-    if (hasChanged) {}
+    if (hasChanged) {
+}
   };
 
   // Animer vers une location spécifique avec validation du ref
@@ -144,7 +149,8 @@ export function MapViewProvider({
     if (!mapRef.current) {
       console.warn('⚠️ MapView ref is not available for locked animation');
       return;
-    }// Verrouiller les animations automatiques
+    }
+// Verrouiller les animations automatiques
     setIsAnimationLocked(true);
 
     // Forcer la configuration de la caméra même si les animations sont verrouillées
@@ -157,16 +163,19 @@ export function MapViewProvider({
 
     // Déverrouiller après la fin de l'animation
     setTimeout(() => {
-      setIsAnimationLocked(false);}, duration + 1000); // Ajouter 1 seconde de marge de sécurité pour éviter les conflits
+      setIsAnimationLocked(false);
+}, duration + 1000); // Ajouter 1 seconde de marge de sécurité pour éviter les conflits
   };
 
   // Fonctions pour gérer le contrôle exclusif des drawers
   const setDrawerCameraControl = (drawerId: string) => {
-    setActiveDrawerController(drawerId);};
+    setActiveDrawerController(drawerId);
+};
 
   const releaseDrawerCameraControl = (drawerId?: string) => {
     if (!drawerId || activeDrawerController === drawerId) {
-      setActiveDrawerController(null);}
+      setActiveDrawerController(null);
+}
   };
 
   // Définir le niveau de zoom
@@ -276,8 +285,6 @@ export function MapViewProvider({
       zoomLevel: zoom,
       animationDuration: duration
     });
-
-    console.log(`📍 Fitted to coordinates with viewport padding: center=[${adjustedCenterLon}, ${adjustedCenterLat}], zoom=${zoom}, padding=${JSON.stringify(viewportPadding)}`);
   };
 
   // Fonction pour définir le padding du viewport
@@ -286,7 +293,8 @@ export function MapViewProvider({
       // Éviter les mises à jour inutiles si le padding n'a pas changé
       if (JSON.stringify(prevPadding) === JSON.stringify(padding)) {
         return prevPadding;
-      }return padding;
+      }
+return padding;
     });
   }, []);
 

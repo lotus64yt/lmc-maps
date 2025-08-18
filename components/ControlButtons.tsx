@@ -7,7 +7,7 @@ interface ControlButtonsProps {
   onToggleCompass: () => void;
   compassMode: 'north' | 'heading';
   isFollowingUser?: boolean;
-  isNavigating?: boolean; // Nouvel état pour savoir si on est en navigation
+  isNavigating?: boolean;
 }
 
 export default function ControlButtons({ 
@@ -31,7 +31,9 @@ export default function ControlButtons({
     <View style={[
       styles.buttonContainer,
       // Ajuster la position pendant la navigation
-      isNavigating && styles.buttonContainerNavigating
+      isNavigating && styles.buttonContainerNavigating,
+      // Cacher complètement les boutons en mode navigation
+      isNavigating && styles.buttonContainerHidden
     ]}>
       <TouchableOpacity onPress={handleRecenterPress} style={[
         styles.button,
@@ -44,7 +46,6 @@ export default function ControlButtons({
         />
       </TouchableOpacity>
       
-      {/* Bouton de rotation selon la direction de l'appareil */}
       <TouchableOpacity onPress={handleCompassToggle} style={[
         styles.button,
         { backgroundColor: compassMode === 'heading' ? '#007AFF' : 'white' }
@@ -69,6 +70,9 @@ const styles = StyleSheet.create({
   },
   buttonContainerNavigating: {
     bottom: 120, // Plus haut pendant la navigation pour éviter le NavigationGuidance
+  },
+  buttonContainerHidden: {
+    display: 'none', // Cacher complètement les boutons en mode navigation
   },
   button: {
     backgroundColor: "white",

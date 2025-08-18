@@ -71,17 +71,6 @@ export class NavigationInstructionService {
     currentIndex: number = 0
   ): NavigationInstruction {
     
-    console.log('🔧 Debug - Génération instruction pour étape:', {
-      streetName: step.streetName,
-      maneuver: step.maneuver,
-      osrmModifier: (step as any).osrmModifier,
-      osrmInstruction: (step as any).osrmInstruction,
-      isFirstStep,
-      userOnRoute,
-      currentIndex,
-      hasNextStep: !!nextStep
-    });
-    
     // Si c'est la première étape et que l'utilisateur n'est pas sur la route
     if (isFirstStep && !userOnRoute) {
       return this.generateJoinRouteInstruction(
@@ -99,7 +88,8 @@ export class NavigationInstructionService {
 
     // PRIORITÉ 1: Utiliser le modifier OSRM (le plus fiable)
     const osrmModifier = (step as any).osrmModifier;
-    if (osrmModifier) {const maneuverType = this.convertOSRMModifierToType(step.maneuver, osrmModifier);
+    if (osrmModifier) {
+const maneuverType = this.convertOSRMModifierToType(step.maneuver, osrmModifier);
       return this.generateInstructionFromManeuver(
         maneuverType, 
         step.streetName, 
@@ -110,7 +100,8 @@ export class NavigationInstructionService {
     }
 
     // PRIORITÉ 2: Utiliser le manœuvre original
-    if (step.maneuver && step.maneuver !== 'straight' && step.maneuver !== 'continue') {const originalType = this.convertOriginalManeuverToType(step.maneuver);
+    if (step.maneuver && step.maneuver !== 'straight' && step.maneuver !== 'continue') {
+const originalType = this.convertOriginalManeuverToType(step.maneuver);
       if (originalType !== 'straight') {
         return this.generateInstructionFromManeuver(
           originalType, 
@@ -230,7 +221,8 @@ export class NavigationInstructionService {
     
     // Normaliser l'angle entre -180 et 180
     while (angle > 180) angle -= 360;
-    while (angle < -180) angle += 360;return angle;
+    while (angle < -180) angle += 360;
+return angle;
   }
 
   // Normaliser un vecteur
@@ -247,8 +239,6 @@ export class NavigationInstructionService {
     nextStreet?: string
   ): string {
     const absAngle = Math.abs(angle);
-    
-    console.log(`🔧 Debug - Analyse angle améliorée: ${angle}° (absolu: ${absAngle}°)`);
     
     // Cas spéciaux basés sur les noms de rues
     if (currentStreet && nextStreet) {
@@ -711,14 +701,41 @@ export class NavigationInstructionService {
 
     steps.forEach((step, index) => {
       if (step.coordinates && step.coordinates.length >= 2) {
+        // Calculer la distance minimale à toute la géométrie de l'étape
+        let stepMinDistance = Infinity;
+        
+        // Vérifier le point de début de l'étape
+        const stepStart = {
+          latitude: step.coordinates[1],
+          longitude: step.coordinates[0]
+        };
+        
+        // Vérifier le point de fin de l'étape  
         const stepEnd = {
           latitude: step.coordinates[step.coordinates.length - 1],
           longitude: step.coordinates[step.coordinates.length - 2]
         };
         
-        const distance = this.haversineDistance(userLocation, stepEnd);
-        if (distance < minDistance) {
-          minDistance = distance;
+        // Si l'étape a plus de coordonnées, vérifier quelques points intermédiaires
+        const distanceToStart = this.haversineDistance(userLocation, stepStart);
+        const distanceToEnd = this.haversineDistance(userLocation, stepEnd);
+        
+        stepMinDistance = Math.min(distanceToStart, distanceToEnd);
+        
+        // Pour les étapes longues, vérifier aussi quelques points intermédiaires
+        if (step.coordinates.length > 4) {
+          const midIndex = Math.floor((step.coordinates.length - 2) / 2);
+          const stepMid = {
+            latitude: step.coordinates[midIndex + 1],
+            longitude: step.coordinates[midIndex]
+          };
+          const distanceToMid = this.haversineDistance(userLocation, stepMid);
+          stepMinDistance = Math.min(stepMinDistance, distanceToMid);
+        }
+        
+        // Cette étape est-elle la plus proche trouvée jusqu'à présent ?
+        if (stepMinDistance < minDistance) {
+          minDistance = stepMinDistance;
           closestIndex = index;
         }
       }

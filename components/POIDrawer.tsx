@@ -13,7 +13,7 @@ import Slider from '@react-native-community/slider';
 import { MaterialIcons } from '@expo/vector-icons';
 import { OverpassPOI, OverpassService } from '@/services/OverpassService';
 import { formatDistance, formatDuration } from '@/utils/formatUtils';
-import { debugLog } from '@/utils/debugUtils';
+// import { debugLog } from '@/utils/debugUtils';
 
 interface POIDrawerProps {
   visible: boolean;
@@ -121,7 +121,7 @@ export default function POIDrawer({
   // Rechercher les POI (une seule fois avec un rayon large)
   const searchPOIs = React.useCallback(async () => {
     if (!userLocation || hasSearchedRef.current) return;
-    debugLog.poi("Fetching from Overpass API");
+    // debugLog.poi("Fetching from Overpass API");
 
     hasSearchedRef.current = true;
     lastAmenityTypeRef.current = amenityType;
@@ -141,7 +141,7 @@ export default function POIDrawer({
       // Sélectionner automatiquement le premier POI trouvé
       const filteredResults = results.filter(poi => (poi.distance || 0) <= radius);
       if (filteredResults.length > 0) {
-        debugLog.poi(`Auto-selecting first POI from search: ${filteredResults[0].tags.name}`);
+        // debugLog.poi(`Auto-selecting first POI from search: ${filteredResults[0].tags.name}`);
         setSelectedPOI(filteredResults[0]);
         onSelectPOI(filteredResults[0]);
         if (onCameraMove) {
@@ -168,7 +168,7 @@ export default function POIDrawer({
 
   // Effet optimisé pour gérer les changements de rayon uniquement
   React.useEffect(() => {
-    debugLog.poi("Radius change effect triggered");
+    // debugLog.poi("Radius change effect triggered");
     if (pois.length > 0) {
       const filteredResults = pois.filter(poi => (poi.distance || 0) <= radius);
       
@@ -183,7 +183,7 @@ export default function POIDrawer({
         const isSelectedInRange = filteredResults.some(poi => poi.id === selectedPOI.id);
         if (!isSelectedInRange && !userManualSelectionRef.current) {
           // Seulement remplacer si ce n'était pas une sélection manuelle
-          debugLog.poi(`Replacing out-of-range POI: ${selectedPOI.tags.name} -> ${filteredResults[0].tags.name}`);
+          // debugLog.poi(`Replacing out-of-range POI: ${selectedPOI.tags.name} -> ${filteredResults[0].tags.name}`);
           setSelectedPOI(filteredResults[0]);
           onSelectPOI(filteredResults[0]);
           if (onCameraMove) {
@@ -194,11 +194,11 @@ export default function POIDrawer({
           }
         } else if (!isSelectedInRange && userManualSelectionRef.current) {
           // Si c'était une sélection manuelle et qu'elle n'est plus dans le rayon, garder la sélection
-          console.log(`📍 useEffect radius - Manual selection out of range, keeping selection:`, selectedPOI.tags.name);
+          // // debugLog.info(`useEffect radius - Manual selection out of range, keeping selection: ${selectedPOI.tags.name}`);
         }
       } else if (!selectedPOI && filteredResults.length > 0 && !userManualSelectionRef.current) {
         // Aucun POI sélectionné mais il y en a dans le rayon (seulement si pas de sélection manuelle)
-        console.log(`📍 useEffect radius - Auto-selecting first POI:`, filteredResults[0].tags.name);
+        // // debugLog.info(`useEffect radius - Auto-selecting first POI: ${filteredResults[0].tags.name}`);
         setSelectedPOI(filteredResults[0]);
         onSelectPOI(filteredResults[0]);
         if (onCameraMove) {
@@ -209,7 +209,7 @@ export default function POIDrawer({
         }
       } else if (filteredResults.length === 0) {
         // Aucun POI dans le rayon
-        console.log(`📍 useEffect radius - No POI in range, moving to user location`);
+        // // debugLog.info(`useEffect radius - No POI in range, moving to user location`);
         setSelectedPOI(null);
         userManualSelectionRef.current = false; // Reset car aucun POI disponible
         if (onCameraMove && lastUserLocationRef.current) {
@@ -221,7 +221,6 @@ export default function POIDrawer({
 
   // Effet pour initialiser le drawer quand il devient visible
   React.useEffect(() => {
-    console.log("Second useEffect - drawer initialization")
     if (visible) {
       // Le drawer s'ouvre immédiatement, on gère le contenu après
       if (amenityType !== lastAmenityTypeRef.current) {
@@ -242,7 +241,7 @@ export default function POIDrawer({
         // Sélectionner le premier POI
         const filteredResults = preloadedPois.filter(poi => (poi.distance || 0) <= radius);
         if (filteredResults.length > 0) {
-          console.log(`📍 useEffect preloaded - Auto-selecting first POI from preloaded:`, filteredResults[0].tags.name);
+          // // debugLog.info(`useEffect preloaded - Auto-selecting first POI: ${filteredResults[0].tags.name}`);
           setSelectedPOI(filteredResults[0]);
           onSelectPOI(filteredResults[0]);
           if (onCameraMove) {
@@ -271,7 +270,6 @@ export default function POIDrawer({
 
   // Effet pour déclencher la recherche quand userLocation devient disponible
   React.useEffect(() => {
-    console.log("Search trigger useEffect")
     if (visible && userLocation && !hasSearchedRef.current && (!preloadedPois || preloadedPois.length === 0)) {
       searchPOIs();
     }
@@ -279,7 +277,6 @@ export default function POIDrawer({
 
   // Nettoyer le timeout quand le composant se démonte
   React.useEffect(() => {
-    console.log("Third useEffect")
     return () => {
       if (searchTimeoutRef.current) {
         clearTimeout(searchTimeoutRef.current);
@@ -289,14 +286,12 @@ export default function POIDrawer({
 
   // Mettre à jour tempRadius quand initialRadius change
   React.useEffect(() => {
-    console.log("Fourth useEffect")
     setRadius(initialRadius);
     setTempRadius(initialRadius);
   }, [initialRadius]);
 
   // Effet pour gérer la caméra quand le drawer s'ouvre (une seule fois)
   React.useEffect(() => {
-    console.log("Fifth useEffect")
     if (visible && !selectedPOI && onCameraMove && lastUserLocationRef.current) {
       // Si aucun POI sélectionné quand le drawer s'ouvre, centrer sur l'utilisateur
       onCameraMove(lastUserLocationRef.current);
@@ -305,7 +300,6 @@ export default function POIDrawer({
 
   // Effet pour réajuster la caméra quand le drawer change d'état d'expansion
   React.useEffect(() => {
-    console.log("Camera adjustment useEffect")
     if (visible && selectedPOI && onCameraMove) {
       // Réajuster la position de la caméra quand le drawer change de taille
       setTimeout(() => {
@@ -336,7 +330,6 @@ export default function POIDrawer({
 
   // Effet pour animer le bouton quand selectedPOI change
   React.useEffect(() => {
-    console.log("Sixth useEffect")
     Animated.timing(buttonOpacity, {
       toValue: selectedPOI ? 1 : 0,
       duration: 200,
@@ -365,7 +358,7 @@ export default function POIDrawer({
 
   // Sélection/déselection d'un POI
   const handlePOISelect = (poi: OverpassPOI, index: number) => {
-    console.log(`🎯 User manually selected POI: ${OverpassService.formatPOIName(poi)}`);
+    // // debugLog.info(`User manually selected POI: ${OverpassService.formatPOIName(poi)}`);
     userManualSelectionRef.current = true; // Marquer qu'une sélection manuelle a été faite
     
     // Si on clique sur le POI déjà sélectionné, le déselectionner
@@ -374,7 +367,7 @@ export default function POIDrawer({
       userManualSelectionRef.current = false;
       // Déplacer la caméra vers l'utilisateur quand aucun POI sélectionné
       if (onCameraMove && userLocation) {
-        console.log(`📍 handlePOISelect - Deselecting POI, moving to user location`);
+        // // debugLog.info(`handlePOISelect - Deselecting POI, moving to user location`);
         onCameraMove(userLocation);
       }
       // Animer le bouton pour le faire disparaître
@@ -390,8 +383,8 @@ export default function POIDrawer({
       
       // TOUJOURS déplacer la caméra vers le POI sélectionné avec offset pour le drawer
       if (onCameraMove) {
-        console.log(`📍 handlePOISelect - Moving camera to POI: ${OverpassService.formatPOIName(poi)} at coordinates:`, 
-          { latitude: poi.lat, longitude: poi.lon });
+        // // debugLog.info(`handlePOISelect - Moving camera to POI: ${OverpassService.formatPOIName(poi)} at coordinates:`,
+        //   { latitude: poi.lat, longitude: poi.lon });
         onCameraMove(
           { latitude: poi.lat, longitude: poi.lon }, 
           getCameraOffset()

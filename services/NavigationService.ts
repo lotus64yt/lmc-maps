@@ -17,6 +17,10 @@ class NavigationService {
     nextStep: undefined,
     distanceToNextStep: 0,
     currentLocation: null,
+    completedRouteCoordinates: [],
+    remainingRouteCoordinates: [],
+    progressPercentage: 0,
+    hasStartedMoving: false,
   };
 
   private locationSubscription: Location.LocationSubscription | null = null;
@@ -26,6 +30,13 @@ class NavigationService {
   private lastRouteCheck: number = 0; // Timestamp du dernier check de route
   private routeCoordinates: number[] = []; // Coordonnées complètes de la route
   private lastTripDestination: { latitude: number; longitude: number; name?: string } | null = null;
+  private initialLocation: { latitude: number; longitude: number } | null = null; // Position de départ
+  private movementThreshold: number = 20; // Distance minimale pour considérer qu'on a commencé à bouger (mètres)
+  
+  // Nouveau système pour éviter les changements d'étapes trop fréquents
+  private lastStepChangeTime: number = 0;
+  private stepChangeMinInterval: number = 3000; // 3 secondes minimum entre changements d'étapes
+  private stepToleranceDistance: number = 50; // 50 mètres de tolérance pour éviter les oscillations
 
   // Démarrer la navigation avec les étapes de route
   async startNavigation(routeSteps: NavigationStep[], routeService?: any, mode: string = 'driving', fullRouteCoordinates?: number[], destinationInfo?: { latitude: number; longitude: number; name?: string }) {
@@ -47,21 +58,61 @@ class NavigationService {
       });
     }
 
+    // Obtenir la position actuelle pour établir le point de départ
+    let currentLocation: { latitude: number; longitude: number } | null = null;
+    let initialStepIndex = 0;
+
+    try {
+      const locationResult = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.BestForNavigation,
+      });
+      currentLocation = {
+        latitude: locationResult.coords.latitude,
+        longitude: locationResult.coords.longitude,
+      };
+      this.initialLocation = currentLocation;
+
+      // 🚀 AMÉLIORATION : Détecter immédiatement la bonne étape de départ
+      // Si l'utilisateur est déjà en mouvement, trouver l'étape la plus proche
+      if (routeSteps.length > 0) {
+        const closestStepIndex = NavigationInstructionService.findClosestStep(currentLocation, routeSteps);
+        
+        // Si on détecte qu'on est plus proche d'une étape suivante, démarrer depuis cette étape
+        if (closestStepIndex > 0) {
+          // Vérifier si on est vraiment passé la première étape (pas juste à côté)
+          const distanceToFirst = this.calculateDistanceToStep(currentLocation, routeSteps[0]);
+          const distanceToClosest = this.calculateDistanceToStep(currentLocation, routeSteps[closestStepIndex]);
+          
+          // Si on est significativement plus proche de l'étape trouvée ET qu'on a probablement dépassé la première
+          if (distanceToClosest < distanceToFirst - 100 && distanceToFirst > 150) {
+            initialStepIndex = closestStepIndex;
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Impossible d\'obtenir la position de départ:', error);
+    }
+
     this.navigationState = {
       ...this.navigationState,
       isNavigating: true,
-      currentStepIndex: 0,
+      currentStepIndex: initialStepIndex, // Utiliser l'étape détectée au lieu de 0
       steps: routeSteps,
       remainingDistance: this.calculateTotalDistance(routeSteps),
       remainingDuration: this.calculateTotalDuration(routeSteps),
-      nextStep: routeSteps[0],
-      distanceToNextStep: routeSteps[0]?.distance || 0,
+      nextStep: routeSteps[initialStepIndex], // Commencer à la bonne étape
+      distanceToNextStep: routeSteps[initialStepIndex]?.distance || 0,
+      currentLocation: currentLocation,
+      completedRouteCoordinates: [],
+      remainingRouteCoordinates: this.convertRouteCoordinatesToPairs(fullRouteCoordinates || []),
+      progressPercentage: 0,
+      hasStartedMoving: initialStepIndex > 0, // Si on démarre plus loin, on a déjà bougé
     };
 
     // Démarrer les notifications de navigation
     await HybridNavigationNotificationService.startNavigationNotifications();
     
-    // Afficher la première notification si on a une étape
+    // Afficher la notification appropriée (pour l'étape détectée)
     if (routeSteps.length > 0) {
       this.updateNavigationNotification();
     }
@@ -86,7 +137,14 @@ class NavigationService {
       remainingDuration: 0,
       nextStep: undefined,
       distanceToNextStep: 0,
+      completedRouteCoordinates: [],
+      remainingRouteCoordinates: [],
+      progressPercentage: 0,
+      hasStartedMoving: false,
     };
+
+    // Réinitialiser les variables internes
+    this.initialLocation = null;
 
     this.stopLocationTracking();
     this.notifyListeners();
@@ -132,16 +190,81 @@ class NavigationService {
     this.navigationState.currentLocation = location;
 
     if (this.navigationState.isNavigating && this.navigationState.nextStep) {
-      // Détecter si l'utilisateur a avancé dans l'itinéraire
-      const closestStepIndex = NavigationInstructionService.findClosestStep(location, this.navigationState.steps);
-      
-      // Si l'utilisateur est plus proche d'une étape plus avancée, passer à cette étape
-      if (closestStepIndex > this.navigationState.currentStepIndex) {this.navigationState.currentStepIndex = closestStepIndex;
-        this.navigationState.nextStep = this.navigationState.steps[closestStepIndex];
-        this.navigationState.distanceToNextStep = this.navigationState.nextStep?.distance || 0;
+      // Vérifier si l'utilisateur a commencé à bouger (pour éviter les faux sauts d'étapes)
+      if (!this.navigationState.hasStartedMoving && this.initialLocation) {
+        const distanceFromStart = this.calculateDistance(
+          this.initialLocation.latitude,
+          this.initialLocation.longitude,
+          location.latitude,
+          location.longitude
+        );
         
-        // Vibration pour indiquer le saut d'étapes
-        Vibration.vibrate([100, 50, 100, 50, 100]);
+        if (distanceFromStart > this.movementThreshold) {
+          this.navigationState.hasStartedMoving = true;
+        }
+      }
+
+      // Mettre à jour la progression de la route
+      this.updateRouteProgress(location);
+
+      // Détecter si l'utilisateur a avancé dans l'itinéraire (seulement s'il a commencé à bouger)
+      if (this.navigationState.hasStartedMoving) {
+        const closestStepIndex = NavigationInstructionService.findClosestStep(location, this.navigationState.steps);
+        const now = Date.now();
+        
+        // Si l'utilisateur est plus proche d'une étape différente (en avant ou en arrière), passer à cette étape
+        if (closestStepIndex !== this.navigationState.currentStepIndex && closestStepIndex >= 0) {
+          
+          // Calculer la distance actuelle à l'étape suggérée pour éviter les changements trop fréquents
+          const currentStep = this.navigationState.steps[this.navigationState.currentStepIndex];
+          const suggestedStep = this.navigationState.steps[closestStepIndex];
+          
+          let shouldChangeStep = false;
+          
+          // Vérifier si assez de temps s'est écoulé depuis le dernier changement
+          const timeSinceLastChange = now - this.lastStepChangeTime;
+          if (timeSinceLastChange >= this.stepChangeMinInterval) {
+            
+            // Calculer les distances aux deux étapes pour s'assurer que le changement est justifié
+            if (currentStep?.coordinates && suggestedStep?.coordinates) {
+              const distanceToCurrentStep = this.calculateDistanceToStep(location, currentStep);
+              const distanceToSuggestedStep = this.calculateDistanceToStep(location, suggestedStep);
+              
+              // 🚀 AMÉLIORATION : Logique plus intelligente pour éviter les blocages
+              
+              // Si on avance (index plus élevé), être moins strict
+              if (closestStepIndex > this.navigationState.currentStepIndex) {
+                // Pour avancer, vérifier qu'on est vraiment plus proche de la nouvelle étape
+                if (distanceToSuggestedStep < distanceToCurrentStep || distanceToCurrentStep > 200) {
+                  shouldChangeStep = true;
+                }
+              }
+              // Si on recule (index plus faible), être plus strict
+              else if (closestStepIndex < this.navigationState.currentStepIndex) {
+                // Pour reculer, vérifier qu'il y a une vraie différence de distance
+                if (distanceToSuggestedStep < (distanceToCurrentStep - this.stepToleranceDistance * 2)) {
+                  shouldChangeStep = true;
+                }
+              }
+            } else {
+              // Si on n'a pas de coordonnées détaillées, faire le changement prudemment
+              // Seulement si on avance ou si on est très loin de l'étape actuelle
+              if (closestStepIndex > this.navigationState.currentStepIndex) {
+                shouldChangeStep = true;
+              }
+            }
+          }
+          
+          if (shouldChangeStep) {
+            this.navigationState.currentStepIndex = closestStepIndex;
+            this.navigationState.nextStep = this.navigationState.steps[closestStepIndex];
+            this.navigationState.distanceToNextStep = this.navigationState.nextStep?.distance || 0;
+            this.lastStepChangeTime = now;
+            
+            // Vibration pour indiquer le changement d'étape
+            Vibration.vibrate([100, 50, 100, 50, 100]);
+          }
+        }
       }
 
       // Vérifier si on a quitté la route (tous les 10 secondes pour éviter trop de requêtes)
@@ -154,7 +277,8 @@ class NavigationService {
         );
         if (needsRecalculation) {
           // Vibration pour indiquer que la route a été recalculée
-          Vibration.vibrate([50, 50, 50]); // Triple vibration courte pour recalcul// IMPORTANT: Récupérer les nouvelles données de route directement depuis l'API
+          Vibration.vibrate([50, 50, 50]); // Triple vibration courte pour recalcul
+// IMPORTANT: Récupérer les nouvelles données de route directement depuis l'API
           if (this.lastTripDestination) {
             try {
               // Recalculer la route depuis la position actuelle vers la destination
@@ -164,7 +288,8 @@ class NavigationService {
                 this.currentMode
               );
               
-              if (routeCalculated) {// Les nouvelles coordonnées sont automatiquement mises à jour dans routeService
+              if (routeCalculated) {
+// Les nouvelles coordonnées sont automatiquement mises à jour dans routeService
                 // Maintenant on a besoin de récupérer les nouvelles étapes depuis l'API OSRM
                 const newSteps = await this.fetchNavigationStepsFromAPI(
                   { latitude: location.latitude, longitude: location.longitude },
@@ -172,7 +297,8 @@ class NavigationService {
                   this.currentMode
                 );
                 
-                if (newSteps && newSteps.length > 0) {// Mettre à jour les étapes de navigation
+                if (newSteps && newSteps.length > 0) {
+// Mettre à jour les étapes de navigation
                   this.navigationState.steps = newSteps;
                   this.navigationState.currentStepIndex = 0; // Repartir de la première étape
                   this.navigationState.nextStep = newSteps[0];
@@ -360,12 +486,14 @@ class NavigationService {
   ): Promise<NavigationStep[]> {
     try {
       const osrmMode = mode === 'bicycling' ? 'bike' : mode === 'walking' ? 'foot' : 'driving';
-      const url = `https://router.project-osrm.org/route/v1/${osrmMode}/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true`;const response = await fetch(url);
+      const url = `https://router.project-osrm.org/route/v1/${osrmMode}/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true`;
+const response = await fetch(url);
       const data = await response.json();
       
       if (data.routes && data.routes.length > 0) {
         // Utiliser la méthode existante pour convertir les données OSRM
-        const steps = this.convertRouteToNavigationSteps(data);return steps;
+        const steps = this.convertRouteToNavigationSteps(data);
+return steps;
       } else {
         console.warn('🔄 No routes found in OSRM response');
         return [];
@@ -380,7 +508,8 @@ class NavigationService {
   convertRouteToNavigationSteps(routeData: any): NavigationStep[] {
     // Cette fonction doit être adaptée selon le format des données de votre API de routing
     // Exemple avec les données OSRM ou OpenRouteService
-    const steps: NavigationStep[] = [];if (routeData.routes && routeData.routes[0] && routeData.routes[0].legs) {
+    const steps: NavigationStep[] = [];
+if (routeData.routes && routeData.routes[0] && routeData.routes[0].legs) {
       routeData.routes[0].legs.forEach((leg: any) => {
         if (leg.steps) {
           leg.steps.forEach((step: any, index: number) => {
@@ -437,6 +566,114 @@ class NavigationService {
     };
 
     return icons[maneuver] || 'straight';
+  }
+
+  // Convertir les coordonnées de route en paires [longitude, latitude]
+  private convertRouteCoordinatesToPairs(coordinates: number[]): [number, number][] {
+    const pairs: [number, number][] = [];
+    for (let i = 0; i < coordinates.length; i += 2) {
+      if (i + 1 < coordinates.length) {
+        pairs.push([coordinates[i], coordinates[i + 1]]);
+      }
+    }
+    return pairs;
+  }
+
+  // Mettre à jour la progression de la route
+  private updateRouteProgress(currentLocation: { latitude: number; longitude: number }) {
+    if (!this.navigationState.remainingRouteCoordinates || this.navigationState.remainingRouteCoordinates.length === 0) {
+      return;
+    }
+
+    // Trouver le point le plus proche sur la route
+    let closestPointIndex = 0;
+    let minDistance = Infinity;
+
+    this.navigationState.remainingRouteCoordinates.forEach((coord, index) => {
+      const distance = this.calculateDistance(
+        currentLocation.latitude,
+        currentLocation.longitude,
+        coord[1], // latitude
+        coord[0]  // longitude
+      );
+
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestPointIndex = index;
+      }
+    });
+
+    // Diviser la route en partie complétée et partie restante
+    const allRouteCoords = this.convertRouteCoordinatesToPairs(this.routeCoordinates);
+    const totalPoints = allRouteCoords.length;
+    const remainingPoints = this.navigationState.remainingRouteCoordinates.length;
+    const completedPoints = totalPoints - remainingPoints + closestPointIndex;
+
+    // Mettre à jour les coordonnées de progression
+    this.navigationState.completedRouteCoordinates = allRouteCoords.slice(0, completedPoints);
+    this.navigationState.remainingRouteCoordinates = allRouteCoords.slice(completedPoints);
+
+    // Calculer le pourcentage de progression
+    if (totalPoints > 0) {
+      this.navigationState.progressPercentage = Math.min(100, Math.max(0, (completedPoints / totalPoints) * 100));
+    }
+  }
+
+  // Obtenir les coordonnées de la route complétée (pour l'affichage)
+  getCompletedRouteCoordinates(): [number, number][] {
+    return this.navigationState.completedRouteCoordinates || [];
+  }
+
+  // Obtenir les coordonnées de la route restante (pour l'affichage)
+  getRemainingRouteCoordinates(): [number, number][] {
+    return this.navigationState.remainingRouteCoordinates || [];
+  }
+
+  // Calculer la distance minimale entre l'utilisateur et une étape de navigation
+  private calculateDistanceToStep(
+    userLocation: { latitude: number; longitude: number },
+    step: NavigationStep
+  ): number {
+    if (!step.coordinates || step.coordinates.length < 2) {
+      return Infinity;
+    }
+
+    let minDistance = Infinity;
+
+    // Vérifier le point de début
+    const stepStart = {
+      latitude: step.coordinates[1],
+      longitude: step.coordinates[0]
+    };
+    
+    // Vérifier le point de fin
+    const stepEnd = {
+      latitude: step.coordinates[step.coordinates.length - 1],
+      longitude: step.coordinates[step.coordinates.length - 2]
+    };
+    
+    const distanceToStart = this.calculateDistance(userLocation.latitude, userLocation.longitude, stepStart.latitude, stepStart.longitude);
+    const distanceToEnd = this.calculateDistance(userLocation.latitude, userLocation.longitude, stepEnd.latitude, stepEnd.longitude);
+    
+    minDistance = Math.min(distanceToStart, distanceToEnd);
+
+    // Pour les étapes plus longues, vérifier aussi quelques points intermédiaires
+    if (step.coordinates.length > 4) {
+      const midIndex = Math.floor((step.coordinates.length - 2) / 2);
+      const stepMid = {
+        latitude: step.coordinates[midIndex + 1],
+        longitude: step.coordinates[midIndex]
+      };
+      const distanceToMid = this.calculateDistance(userLocation.latitude, userLocation.longitude, stepMid.latitude, stepMid.longitude);
+      minDistance = Math.min(minDistance, distanceToMid);
+    }
+
+    return minDistance;
+  }
+
+  // Obtenir le pourcentage de progression
+  getProgressPercentage(): number {
+    return this.navigationState.progressPercentage || 0;
   }
 
   // Écouter les changements d'état

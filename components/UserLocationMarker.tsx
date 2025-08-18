@@ -9,30 +9,81 @@ interface UserLocationMarkerProps {
   headingAnim: Animated.Value;
   compassMode: 'north' | 'heading';
   mapHeading?: number;
+  // Nouvelles props pour la direction de la route
+  routeDirection?: {
+    bearing: number;
+    isOnRoute: boolean;
+  };
+  isNavigating?: boolean;
 }
 
 export default function UserLocationMarker({
   location,
   headingAnim,
   compassMode,
-  mapHeading = 0
+  mapHeading = 0,
+  routeDirection,
+  isNavigating = false
 }: UserLocationMarkerProps) {
   
-  // En mode heading, on doit compenser la rotation de la carte
+  // En mode navigation, utiliser la direction de la route si disponible et l'utilisateur est sur la route
+  const shouldUseRouteDirection = isNavigating && 
+                                  routeDirection && 
+                                  routeDirection.isOnRoute;
+
+  // Fonction pour calculer la rotation appropriée
   const getRotationTransform = () => {
-    if (compassMode === 'heading') {
-      // La flèche doit pointer dans la direction absolue du heading,
-      // mais compensée par la rotation de la carte
-      return headingAnim.interpolate({
-        inputRange: [0, 360],
-        outputRange: [`${180 - mapHeading}deg`, `${540 - mapHeading}deg`],
-      });
+    // Préparer un heading basé sur le mouvement (si disponible)
+    const numericLocationHeading =
+      location && typeof (location as any).heading === "number" && !isNaN((location as any).heading)
+        ? (location as any).heading
+        : undefined;
+
+    const isMoving =
+      location && typeof (location as any).speed === "number" && (location as any).speed > 0.5; // seuil en m/s
+
+    // Si on est en navigation, on veut que la carte tourne pour aligner la direction
+    // tandis que la flèche reste visuellement orientée vers le haut de l'appareil.
+    if (isNavigating) {
+      // Annuler la rotation de la carte pour que la flèche reste verticale à l'écran
+      // (on ajoute 180° pour compenser l'orientation de l'icône si nécessaire)
+      return `${180 - mapHeading}deg`;
+    }
+
+    if (shouldUseRouteDirection) {
+      // Mode navigation avec direction de route (mais si isNavigating === false, on veut
+      // toujours que la flèche suive la direction de la route)
+      const routeBearing = routeDirection!.bearing;
+
+      if (compassMode === 'heading') {
+        // Compenser la rotation de la carte
+        return `${routeBearing - mapHeading + 180}deg`;
+      } else {
+        // Mode nord : utiliser directement la direction de la route
+        return `${routeBearing + 180}deg`;
+      }
     } else {
-      // Mode normal, la flèche suit juste le heading
-      return headingAnim.interpolate({
-        inputRange: [0, 360],
-        outputRange: ["180deg", "540deg"],
-      });
+      // Mode normal : utiliser la boussole/heading ou le cap de mouvement en mode 'north'
+      if (compassMode === 'heading') {
+        // La flèche doit pointer dans la direction absolue du heading,
+        // mais compensée par la rotation de la carte
+        return headingAnim.interpolate({
+          inputRange: [0, 360],
+          outputRange: [`${180 - mapHeading}deg`, `${540 - mapHeading}deg`],
+        });
+      } else {
+        // Mode nord : si l'appareil se déplace, utiliser le cap de mouvement (location.heading)
+        // sinon retomber sur le magnétomètre animé
+        if (numericLocationHeading !== undefined && isMoving) {
+          return `${numericLocationHeading + 180}deg`;
+        }
+
+        // Mode normal, la flèche suit juste le heading magnétique
+        return headingAnim.interpolate({
+          inputRange: [0, 360],
+          outputRange: ["180deg", "540deg"],
+        });
+      }
     }
   };
 

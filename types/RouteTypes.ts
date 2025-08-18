@@ -36,4 +36,14 @@ export interface NavigationState {
     latitude: number;
     longitude: number;
   } | null;
+  // Nouvelles propriétés pour la progression
+  completedRouteCoordinates?: [number, number][]; // Coordonnées de la partie déjà parcourue
+  remainingRouteCoordinates?: [number, number][]; // Coordonnées de la partie restante
+  progressPercentage?: number; // Pourcentage de progression (0-100)
+  hasStartedMoving?: boolean; // Pour éviter les faux sauts d'étapes au début
+}
+
+export interface Coordinate {
+  latitude: number;
+  longitude: number;
 }

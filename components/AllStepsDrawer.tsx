@@ -24,6 +24,8 @@ interface AllStepsDrawerProps {
   totalDuration: number;
   remainingDistance: number;
   remainingDuration: number;
+  distanceToNextStep?: number; // Distance restante jusqu'à la prochaine étape
+  currentStepDistance?: number; // Distance totale de l'étape actuelle
 }
 
 const { height: screenHeight } = Dimensions.get('window');
@@ -39,6 +41,8 @@ export default function AllStepsDrawer({
   totalDuration,
   remainingDistance,
   remainingDuration,
+  distanceToNextStep = 0,
+  currentStepDistance = 0,
 }: AllStepsDrawerProps) {
   const translateY = useRef(new Animated.Value(DRAWER_HEIGHT)).current;
 
@@ -123,6 +127,7 @@ export default function AllStepsDrawer({
       case 'turn-sharp-right': return 'turn-sharp-right';
       case 'u-turn-left': return 'u-turn-left';
       case 'roundabout-left': return 'roundabout-left';
+      case 'roundabout-right': return 'roundabout-right';
       case 'merge': return 'merge-type';
       case 'fork-left': return 'call-split';
       case 'flag': return 'flag';
@@ -130,9 +135,17 @@ export default function AllStepsDrawer({
     }
   };
 
+  // Calculer la progression de l'utilisateur sur l'étape actuelle
+  const getUserProgressOnCurrentStep = (): number => {
+    if (currentStepDistance <= 0 || distanceToNextStep < 0) return 0;
+    const progressDistance = currentStepDistance - distanceToNextStep;
+    return Math.max(0, Math.min(1, progressDistance / currentStepDistance));
+  };
+
   const renderStepItem = ({ item, index }: { item: NavigationStep, index: number }) => {
     const isCurrentStep = index === currentStepIndex;
     const isCompletedStep = index < currentStepIndex;
+    const isFutureStep = index > currentStepIndex;
     const instruction = NavigationInstructionService.generateInstructionFromStep(
       item,
       steps[index + 1],
@@ -146,6 +159,7 @@ export default function AllStepsDrawer({
           styles.stepItem,
           isCurrentStep && styles.currentStepItem,
           isCompletedStep && styles.completedStepItem,
+          isFutureStep && styles.futureStepItem,
         ]}
         onPress={() => onStepPress && onStepPress(index)}
         activeOpacity={0.7}
@@ -166,10 +180,24 @@ export default function AllStepsDrawer({
               />
             )}
           </View>
+          
+          {/* Indicateur de position utilisateur sur l'étape actuelle */}
+          {isCurrentStep && (
+            <View 
+              style={[
+                styles.userPositionIndicator,
+                { top: 24 + (getUserProgressOnCurrentStep() * 36) } // Position dynamique sur le connecteur
+              ]}
+            >
+              <Icon name="keyboard-arrow-down" size={20} color="#FF6B35" />
+            </View>
+          )}
+          
           {index < steps.length - 1 && (
             <View style={[
               styles.stepConnector,
               isCompletedStep && styles.completedStepConnector,
+              isCurrentStep && styles.currentStepConnector,
             ]} />
           )}
         </View>
@@ -352,20 +380,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingVertical: 12,
     alignItems: 'flex-start',
+    borderLeftWidth: 4,
+    borderLeftColor: '#E0E0E0', // Étape non atteinte - gris clair
+    paddingLeft: 16,
+    marginLeft: 4,
   },
   currentStepItem: {
-    backgroundColor: '#F0F8FF',
-    marginHorizontal: -20,
-    paddingHorizontal: 20,
-    borderRadius: 8,
+    flexDirection: 'row',
+    paddingVertical: 12,
+    alignItems: 'flex-start',
+    borderLeftWidth: 4,
+    borderLeftColor: '#007AFF', // Étape actuelle - bleu
+    paddingLeft: 16,
+    marginLeft: 4,
   },
   completedStepItem: {
     opacity: 0.7,
+    borderLeftColor: '#34C759', // Étape terminée - vert
+  },
+  futureStepItem: {
+    borderLeftColor: '#E0E0E0', // Étape future - gris plus clair
+    opacity: 0.8,
   },
   stepIconContainer: {
     alignItems: 'center',
     marginRight: 16,
+    marginLeft: -4, // Compenser légèrement la bordure gauche
     width: 24,
+    position: 'relative', // Nécessaire pour positionner l'indicateur utilisateur
   },
   stepIconCircle: {
     width: 24,
@@ -456,5 +498,61 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 10,
     fontWeight: '600',
+  },
+  
+  // Styles pour les badges numériques des étapes
+  stepNumberBadge: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 8,
+    width: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'white',
+  },
+  currentStepNumberBadge: {
+    backgroundColor: '#007AFF',
+  },
+  completedStepNumberBadge: {
+    backgroundColor: '#34C759',
+  },
+  stepNumberText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#666',
+  },
+  currentStepNumberText: {
+    color: 'white',
+  },
+  completedStepNumberText: {
+    color: 'white',
+  },
+  
+  // Style pour le connecteur de l'étape actuelle
+  currentStepConnector: {
+    backgroundColor: '#007AFF',
+    width: 3, // Légèrement plus épais pour l'étape actuelle
+  },
+
+  // Style pour l'indicateur de position utilisateur
+  userPositionIndicator: {
+    position: 'absolute',
+    left: -8, // Centré sur le connecteur
+    backgroundColor: 'white',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 3,
+    zIndex: 10,
   },
 });

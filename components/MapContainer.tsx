@@ -18,7 +18,7 @@ import { MapStorageService } from "../services/MapStorageService";
 import { useMapView } from "../contexts/MapViewContext";
 import { NavigationStep } from "../types/RouteTypes";
 import { useLocationService } from "@/services/LocationService";
-import ArrowIcon from "./ArrowSVG";
+import NavigationArrow from "./ArrowSVG";
 
 Mapbox.setAccessToken("");
 
@@ -48,6 +48,10 @@ interface MapContainerProps {
   // Nouvelles props pour le tracé hybride
   directLineCoords?: Coordinate[];
   nearestRoadPoint?: Coordinate | null;
+  // Nouvelles props pour la progression de navigation
+  completedRouteCoords?: Coordinate[];
+  remainingRouteCoords?: Coordinate[];
+  progressPercentage?: number;
   hasDirectLineSegment?: boolean;
   // Props pour le point de location sélectionné
   showLocationPoint?: boolean;
@@ -57,6 +61,13 @@ interface MapContainerProps {
     coordinate: Coordinate;
     name: string;
   } | null;
+  // Nouvelle prop pour la direction de la route
+  routeDirection?: {
+    bearing: number;
+    isOnRoute: boolean;
+  };
+  // Override optionnel du heading de la caméra (null = pas d'override)
+  mapHeadingOverride?: number | null;
 }
 
 interface SavedMapState {
@@ -92,6 +103,13 @@ export default function MapContainer({
   selectedLocationCoordinate,
   // Props pour le parking sélectionné
   selectedParking,
+  // Nouvelles props pour la progression de navigation
+  completedRouteCoords = [],
+  remainingRouteCoords = [],
+  progressPercentage = 0,
+  // Nouvelle prop pour la direction de la route
+  routeDirection,
+  mapHeadingOverride = null,
 }: MapContainerProps) {
   // Utiliser le contexte MapView
   const {
@@ -102,6 +120,7 @@ export default function MapContainer({
     setPitch,
     setCameraConfig,
   } = useMapView();
+  const { heading: mapHeading } = useMapView();
 
   const { heading } = useLocationService();
 
@@ -113,11 +132,161 @@ export default function MapContainer({
   const [hasInitialized, setHasInitialized] = useState(false);
 
   const [isMapReady, setIsMapReady] = useState(false);
-
   const [mapBearing, setMapBearing] = useState(0);
+  const lastCameraUpdateRef = useRef<{
+    latitude: number;
+    longitude: number;
+    timestamp: number;
+  } | null>(null);
 
   // Debug log pour le heading
   useEffect(() => {}, [heading, currentHeading, compassMode, mapBearing]);
+
+  // Fonction utilitaire pour calculer la distance entre deux points
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371e3; // Rayon de la Terre en mètres
+    const φ1 = lat1 * Math.PI/180;
+    const φ2 = lat2 * Math.PI/180;
+    const Δφ = (lat2-lat1) * Math.PI/180;
+    const Δλ = (lon2-lon1) * Math.PI/180;
+
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ/2) * Math.sin(Δλ/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+    return R * c; // Distance en mètres
+  };
+
+  // Calculate bearing (degrees) from point A to point B (lat/lon in degrees)
+  const calculateBearing = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    let θ = Math.atan2(y, x) * 180 / Math.PI;
+    if (θ < 0) θ += 360;
+    return θ;
+  };
+
+  // Fonction pour calculer le heading approprié pour la caméra
+  const getCameraHeading = () => {
+    // Si un override est fourni depuis le composant parent (App), l'utiliser en priorité
+    const normalizeAngle = (angle: number) => ((angle % 360) + 360) % 360;
+    if (typeof mapHeadingOverride === 'number' && !isNaN(mapHeadingOverride)) {
+      return normalizeAngle(mapHeadingOverride);
+    }
+    // Utiliser la même logique de mélange que pour la flèche, mais moins agressive
+    const isOnRoute = routeDirection && routeDirection.isOnRoute;
+    
+    // Facteurs de mélange pour la caméra (plus conservateurs que la flèche) :
+    // - Navigation + sur route : 80% direction, 20% boussole (précision mais pas trop brusque)
+    // - Navigation + hors route : 50% direction, 50% boussole 
+    // - Mode normal : 100% boussole (pas de rotation automatique)
+    
+    let directionWeight = 0;
+    
+    if (isNavigating && isOnRoute && compassMode === "heading") {
+      directionWeight = 0.8; // Navigation précise mais smooth
+    } else if (isNavigating && routeDirection && compassMode === "heading") {
+      directionWeight = 0.5; // Navigation hors route, mélange équilibré
+    } else {
+      directionWeight = 0.0; // Mode normal ou nord : pas de rotation automatique
+    }
+
+    if (directionWeight === 0) {
+      // Mode boussole standard
+      if (compassMode === "heading") {
+        // Preferer le heading défini par le contexte (setCameraConfig/updateMapHeading)
+        if (typeof mapHeading === 'number' && !isNaN(mapHeading)) {
+          return mapHeading;
+        }
+
+        return heading !== 0 ? heading : currentHeading || 0;
+      } else {
+        return 0;
+      }
+    }
+
+    // Mélange direction + boussole pour la caméra
+    const directionAngle = routeDirection?.bearing || 0;
+    const compassAngle = (typeof mapHeading === 'number' && !isNaN(mapHeading)) ? mapHeading : (heading !== 0 ? heading : currentHeading || 0);
+    
+    // Normaliser et calculer le mélange
+    const normDirectionAngle = normalizeAngle(directionAngle);
+    const normCompassAngle = normalizeAngle(compassAngle);
+    
+    let angleDiff = normDirectionAngle - normCompassAngle;
+    if (angleDiff > 180) angleDiff -= 360;
+    if (angleDiff < -180) angleDiff += 360;
+    
+    const finalAngle = normCompassAngle + (angleDiff * directionWeight);
+    
+    return normalizeAngle(finalAngle);
+  };
+
+  // Fonction pour calculer la rotation appropriée de la flèche utilisateur
+  const getArrowRotation = (): string => {
+    // Déterminer l'intensité du mélange direction/boussole
+    const isOnRoute = routeDirection && routeDirection.isOnRoute;
+    
+    // Facteurs de mélange :
+    // - Navigation + sur route : 100% direction de déplacement (précision maximale)
+    // - Navigation + hors route : 70% direction, 30% boussole (guidage vers la route)
+    // - Mode normal + direction disponible : 40% direction, 60% boussole (économie ressources)
+    // - Mode normal sans direction : 100% boussole
+    
+    let directionWeight = 0; // Poids de la direction de déplacement (0-1)
+    
+    if (isNavigating && isOnRoute) {
+      // Navigation précise : priorité totale à la direction
+      directionWeight = 1.0;
+    } else if (isNavigating && routeDirection) {
+      // Navigation hors route : mélange pour guider vers la route
+      directionWeight = 0.7;
+    } else if (routeDirection && routeDirection.isOnRoute) {
+      // Mode normal avec direction : mélange économique
+      directionWeight = 0.4;
+    } else {
+      // Pas de direction disponible : boussole uniquement
+      directionWeight = 0.0;
+    }
+
+    // Calculer l'angle de direction de déplacement
+    let directionAngle = 0;
+    if (routeDirection && directionWeight > 0) {
+      directionAngle = routeDirection.bearing;
+    }
+
+    // Calculer l'angle de la boussole actuel (sans animation pour simplifier)
+    let compassAngle = currentHeading || 0;
+
+    // Calculer l'angle final avec mélange
+    let finalAngle = compassAngle;
+    
+    if (directionWeight > 0 && routeDirection) {
+      // Mélange : interpolation entre direction et boussole
+      // Normaliser les angles pour éviter les problèmes de 360°/0°
+      const normalizeAngle = (angle: number) => ((angle % 360) + 360) % 360;
+      
+      const normDirectionAngle = normalizeAngle(directionAngle);
+      const normCompassAngle = normalizeAngle(compassAngle);
+      
+      // Calculer la différence angulaire pour choisir le chemin le plus court
+      let angleDiff = normDirectionAngle - normCompassAngle;
+      if (angleDiff > 180) angleDiff -= 360;
+      if (angleDiff < -180) angleDiff += 360;
+      
+      // Angle final mélangé
+      finalAngle = normCompassAngle + (angleDiff * directionWeight);
+      finalAngle = normalizeAngle(finalAngle);
+    }
+
+    // Toujours retourner une string pour la cohérence
+    return `${finalAngle}deg`;
+  };
 
   // Fonction pour gérer les changements de la caméra
   const onCameraChanged = (state) => {
@@ -165,6 +334,61 @@ export default function MapContainer({
       setHasZoomedToUser(true);
     }
   }, [location, hasZoomedToUser, initialCenter]);
+
+  // Effet pour gérer la caméra en mode navigation (optimisé pour éviter les boucles)
+  useEffect(() => {
+    if (!location || !isMapReady) return;
+
+    const now = Date.now();
+    const MIN_UPDATE_INTERVAL = 1000; // 1 seconde minimum entre les mises à jour
+    const MIN_DISTANCE_THRESHOLD = 5; // 5 mètres minimum de déplacement
+
+    // Vérifier si assez de temps s'est écoulé
+    if (lastCameraUpdateRef.current && (now - lastCameraUpdateRef.current.timestamp) < MIN_UPDATE_INTERVAL) {
+      return;
+    }
+
+    // Vérifier si l'utilisateur s'est suffisamment déplacé
+    if (lastCameraUpdateRef.current) {
+      const distance = calculateDistance(
+        lastCameraUpdateRef.current.latitude,
+        lastCameraUpdateRef.current.longitude,
+        location.latitude,
+        location.longitude
+      );
+      
+      if (distance < MIN_DISTANCE_THRESHOLD && !isNavigating) {
+        return; // Pas assez de mouvement et pas en navigation
+      }
+    }
+
+    if (isNavigating) {
+      // En navigation : zoom proche et suivi automatique
+      setCameraConfig({
+        centerCoordinate: [location.longitude, location.latitude],
+        zoomLevel: 18,
+      });
+      lastCameraUpdateRef.current = {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        timestamp: now,
+      };
+    } else if (!hasZoomedToUser) {
+      // Première fois : zoom modéré sur la position utilisateur
+      setCameraConfig({
+        centerCoordinate: [location.longitude, location.latitude],
+        zoomLevel: 16,
+      });
+      setHasZoomedToUser(true);
+      lastCameraUpdateRef.current = {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        timestamp: now,
+      };
+    }
+    // Pas de lastCameraUpdateRef dans les dépendances car c'est un ref
+    // Pas de setCameraConfig car c'est une fonction stable du contexte
+  }, [isNavigating, location, isMapReady, hasZoomedToUser]);
 
   // Gérer les changements de région de la carte
   const handleRegionDidChange = async (feature: any) => {
@@ -219,49 +443,47 @@ export default function MapContainer({
   if (hasDirectLineSegment || (isNavigating && navigationMode === "walking")) {
   }
 
-  // Créer les données GeoJSON pour les intersections/étapes de navigation et virages serrés
+  // Créer les données GeoJSON pour la progression de la route
+  const completedRouteGeoJSON = isNavigating && completedRouteCoords.length > 1 ? {
+    type: "Feature" as const,
+    properties: {},
+    geometry: {
+      type: "LineString" as const,
+      coordinates: completedRouteCoords.map((coord) => [
+        coord.longitude,
+        coord.latitude,
+      ]),
+    },
+  } : null;
+
+  const remainingRouteGeoJSON = isNavigating && remainingRouteCoords.length > 1 ? {
+    type: "Feature" as const,
+    properties: {},
+    geometry: {
+      type: "LineString" as const,
+      coordinates: remainingRouteCoords.map((coord) => [
+        coord.longitude,
+        coord.latitude,
+      ]),
+    },
+  } : null;
+
+  // Créer les données GeoJSON pour les intersections (seulement virages serrés)
   const intersectionsGeoJSON = {
     type: "FeatureCollection" as const,
-    features:
-      (isNavigating && navigationSteps.length > 0) || routeCoords.length > 0
-        ? [
-            // Étapes de navigation existantes
-            ...navigationSteps.map((step, index) => ({
-              type: "Feature" as const,
-              properties: {
-                stepIndex: index,
-                isCurrent: index === currentStepIndex,
-                isCompleted: index < currentStepIndex,
-                instruction: step.instruction,
-                maneuver: step.maneuver,
-                type: "navigation-step",
-              },
-              geometry: {
-                type: "Point" as const,
-                coordinates: step.coordinates,
-              },
-            })),
-            // Virages serrés détectés dans la route
-            ...detectSharpTurnsInRoute(routeCoords).map((turn, index) => ({
-              type: "Feature" as const,
-              properties: {
-                turnIndex: index,
-                angle: turn.angle,
-                type: "sharp-turn",
-                instruction: `Virage ${
-                  turn.angle >= 135 ? "serré" : "important"
-                } (${Math.round(turn.angle)}°)`,
-              },
-              geometry: {
-                type: "Point" as const,
-                coordinates: [
-                  turn.coordinate.longitude,
-                  turn.coordinate.latitude,
-                ],
-              },
-            })),
-          ]
-        : [], // Retourner un tableau vide au lieu de null
+    features: detectSharpTurnsInRoute(routeCoords).map((turn, index) => ({
+      type: "Feature" as const,
+      properties: {
+        turnIndex: index,
+        angle: turn.angle,
+        type: "sharp-turn",
+        instruction: `Virage ${turn.angle >= 135 ? "serré" : "important"} (${Math.round(turn.angle)}°)`,
+      },
+      geometry: {
+        type: "Point" as const,
+        coordinates: [turn.coordinate.longitude, turn.coordinate.latitude],
+      },
+    })),
   };
 
   // Générer des IDs uniques pour les sources pour éviter les conflits Mapbox
@@ -349,21 +571,87 @@ export default function MapContainer({
               centerCoordinate={centerCoordinate || initialCenter}
               zoomLevel={zoomLevel}
               pitch={pitch}
-              heading={
-                compassMode === "heading"
-                  ? heading !== 0
-                    ? heading
-                    : currentHeading || 0
-                  : 0
-              }
+              heading={getCameraHeading()}
               animationDuration={1000}
             />
           )}
 
-          {/* Marqueur de position utilisateur avec rotation dynamique */}
+          {/* ==================== ROUTES (RENDU EN PREMIER - DESSOUS) ==================== */}
+          
+          {/* Affichage de la route avec progression en navigation ou route normale */}
+          {isMapReady && isNavigating && (completedRouteGeoJSON || remainingRouteGeoJSON) ? (
+            <>
+              {/* Segment de route déjà parcouru (en gris/vert) */}
+              {completedRouteGeoJSON && (
+                <ShapeSource id={`completed-route-${currentTimestamp}`} shape={completedRouteGeoJSON}>
+                  <LineLayer
+                    id={`completed-route-layer-${currentTimestamp}`}
+                    style={{
+                      lineColor: "#4CAF50", // Vert pour indiquer terminé
+                      lineWidth: 4,
+                      lineCap: "round",
+                      lineJoin: "round",
+                      lineOpacity: 0.7,
+                    }}
+                  />
+                </ShapeSource>
+              )}
+              
+              {/* Segment de route restant (en bleu) */}
+              {remainingRouteGeoJSON && (
+                <ShapeSource id={`remaining-route-${currentTimestamp}`} shape={remainingRouteGeoJSON}>
+                  <LineLayer
+                    id={`remaining-route-layer-${currentTimestamp}`}
+                    style={{
+                      lineColor: "#007AFF", // Bleu pour la route restante
+                      lineWidth: 4,
+                      lineCap: "round",
+                      lineJoin: "round",
+                    }}
+                  />
+                </ShapeSource>
+              )}
+            </>
+          ) : (
+            /* Route normale (quand pas en navigation ou pas de données de progression) */
+            isMapReady && routeCoords.length > 0 && (
+              <ShapeSource id={routeSourceId} shape={routeGeoJSON}>
+                <LineLayer
+                  id={`route-layer-${currentTimestamp}`}
+                  style={{
+                    lineColor: "#007AFF",
+                    lineWidth: 4,
+                    lineCap: "round",
+                    lineJoin: "round",
+                  }}
+                />
+              </ShapeSource>
+            )
+          )}
+
+          {/* Ligne à vol d'oiseau (en plus de la route normale si besoin) */}
+          {isMapReady && directLineGeoJSON && (
+            <ShapeSource id={directLineSourceId} shape={directLineGeoJSON}>
+              <LineLayer
+                id={`direct-line-layer-${currentTimestamp}`}
+                style={{
+                  lineColor: "#FF6B35",
+                  lineWidth: 3,
+                  lineCap: "round",
+                  lineJoin: "round",
+                  lineDasharray: [2, 3],
+                  lineOpacity: 0.8,
+                }}
+              />
+            </ShapeSource>
+          )}
+
+          {/* ==================== MARQUEURS UTILISATEUR (RENDU AU-DESSUS) ==================== */}
+          
+          {/* Marqueur de position utilisateur (ShapeSource + cercles d'accuracy) */}
           {isMapReady && location && (
             <>
-              {/* Source de données pour le marqueur utilisateur */}
+              {/* Source de données pour le marqueur utilisateur (cercles seulement) */}
               <ShapeSource
                 id="user-location-source"
                 shape={{
@@ -386,64 +674,20 @@ export default function MapContainer({
                     circleColor: "rgba(0, 122, 255, 0.1)",
                     circleStrokeColor: "rgba(0, 122, 255, 0.3)",
                     circleStrokeWidth: 1,
-                    circlePitchAlignment: "map", // S'adapte à l'inclinaison de la carte
+                    circlePitchAlignment: "map",
                   }}
                 />
 
                 <CircleLayer
                   id="user-location-dot"
                   style={{
-                    circleRadius: 18, // Cercle plus grand
+                    circleRadius: 18,
                     circleColor: "#007AFF",
                     circleStrokeColor: "white",
                     circleStrokeWidth: 3,
-                    // S'adapte à l'inclinaison de la carte
                   }}
                 />
-                <PointAnnotation
-                  id="user-location-arrow"
-                  coordinate={[location.longitude, location.latitude]}
-                  anchor={{ x: 0.5, y: 0.5 }}
-                >
-                  <View
-                    style={{
-                      width: 34,
-                      height: 34,
-                      justifyContent: "center",
-                      alignItems: "center",
-                    }}
-                  >
-                    <ArrowIcon
-                      size={24}
-                      color="white"
-                      styleTransform={[{ rotate: `${currentHeading || 0}deg` }]}
-                    />
-                  </View>
-                </PointAnnotation>
               </ShapeSource>
-              {/* 
-              <PointAnnotation
-                id="user-navigation-arrow"
-                coordinate={[location.longitude, location.latitude]}
-                anchor={{ x: 0.5, y: 0.5 }}
-              >
-                <View style={styles.navigationArrowContainer}>
-                  <MaterialIcons 
-                    name="navigation" 
-                    size={24} 
-                    color="#FFFFFF"
-                    style={{
-                      transform: [
-                        {
-                          rotate: `${currentHeading || 0}deg`,
-                        },
-                      ],
-                      elevation: 10,
-                      zIndex: 10,
-                    }}
-                  />
-                </View>
-              </PointAnnotation> */}
             </>
           )}
 
@@ -473,21 +717,27 @@ export default function MapContainer({
             </PointAnnotation>
           )}
 
-          {/* Point de transition vers la route (si tracé hybride) */}
-          {isMapReady && nearestRoadPoint && hasDirectLineSegment && (
+          {/* -------------------- USER ARROW (RENDER LAST TO BE ON TOP) -------------------- */}
+          {isMapReady && location && (
             <PointAnnotation
-              id="road-transition"
-              coordinate={[
-                nearestRoadPoint.longitude,
-                nearestRoadPoint.latitude,
-              ]}
+              id="user-location-arrow"
+              coordinate={[location.longitude, location.latitude]}
+              anchor={{ x: 0.5, y: 0.5 }}
             >
-              <View style={styles.destinationMarker}>
-                <MaterialIcons
-                  name="compare-arrows"
-                  size={24}
-                  color="#FF9500"
-                />
+              <View
+                style={{
+                  width: 34,
+                  height: 34,
+                  justifyContent: "center",
+                  alignItems: "center",
+                  transform: [
+                    {
+                      rotate: getArrowRotation(),
+                    },
+                  ],
+                }}
+              >
+                <NavigationArrow size={24} color="white" />
               </View>
             </PointAnnotation>
           )}
@@ -557,38 +807,6 @@ export default function MapContainer({
                 </PointAnnotation>
               ))}
 
-          {/* Ligne de route ou ligne à vol d'oiseau */}
-          {isMapReady && routeCoords.length > 0 && (
-            <ShapeSource id={routeSourceId} shape={routeGeoJSON}>
-              <LineLayer
-                id={`route-layer-${currentTimestamp}`}
-                style={{
-                  lineColor: "#007AFF",
-                  lineWidth: 4,
-                  lineCap: "round",
-                  lineJoin: "round",
-                }}
-              />
-            </ShapeSource>
-          )}
-
-          {/* Ligne à vol d'oiseau (en plus de la route normale si besoin) */}
-          {isMapReady && directLineGeoJSON && (
-            <ShapeSource id={directLineSourceId} shape={directLineGeoJSON}>
-              <LineLayer
-                id={`direct-line-layer-${currentTimestamp}`}
-                style={{
-                  lineColor: "#FF9500",
-                  lineWidth: 3,
-                  lineCap: "round",
-                  lineJoin: "round",
-                  lineDasharray: [5, 5], // Ligne pointillée
-                  lineOpacity: 0.8,
-                }}
-              />
-            </ShapeSource>
-          )}
-
           {/* Intersections et étapes de navigation */}
           {isMapReady && intersectionsGeoJSON.features.length > 0 && (
             <ShapeSource
@@ -643,39 +861,74 @@ export default function MapContainer({
 
           {/* Affichage des instructions aux intersections et virages */}
           {isNavigating &&
-            navigationSteps.map((step, index) => (
-              <PointAnnotation
-                key={`step-${index}`}
-                id={`navigation-step-${index}`}
-                coordinate={step.coordinates}
-                onSelected={() => {
-                  if (onNavigationStepPress) {
-                    onNavigationStepPress(index, step);
-                  }
-                }}
-              >
-                <View
-                  style={[
-                    styles.navigationStepMarker,
-                    index === currentStepIndex && styles.currentStepMarker,
-                    index < currentStepIndex && styles.completedStepMarker,
-                  ]}
+            navigationSteps.map((step, index) => {
+              // Ne pas rendre les étapes déjà effectuées
+              if (index < currentStepIndex) return null;
+
+              // Calculer l'orientation de la flèche : vers la prochaine étape si disponible
+              const coord = step.coordinates as [number, number]; // [lon, lat]
+              const nextCoord = navigationSteps[index + 1]?.coordinates || (destination ? [destination.longitude, destination.latitude] : null);
+              let bearing = 0;
+              if (nextCoord) {
+                // calculateBearing(lat1, lon1, lat2, lon2)
+                bearing = calculateBearing(coord[1], coord[0], nextCoord[1], nextCoord[0]);
+              }
+
+              return (
+                <PointAnnotation
+                  key={`step-${index}`}
+                  id={`navigation-step-${index}`}
+                  coordinate={coord}
+                  onSelected={() => {
+                    if (onNavigationStepPress) {
+                      onNavigationStepPress(index, step);
+                    }
+                  }}
                 >
-                  <MaterialIcons
-                    name={getManeuverIcon(step.maneuver)}
-                    size={16}
-                    color="white"
-                  />
-                  {index === currentStepIndex && (
-                    <View style={styles.instructionBubble}>
-                      <Text style={styles.instructionText} numberOfLines={2}>
-                        {step.instruction}
-                      </Text>
+                  <View
+                    style={[
+                      styles.navigationStepWrapper,
+                      index === currentStepIndex && styles.currentStepWrapper,
+                    ]}
+                  >
+                    {/* Arrow marker rotated to follow the path */}
+                    <View
+                      style={{
+                        width: 28,
+                        height: 28,
+                        justifyContent: "center",
+                        alignItems: "center",
+                        transform: [{ rotate: `${bearing}deg` }],
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 12,
+                          backgroundColor: index === currentStepIndex ? "#FF3B30" : "#007AFF",
+                          justifyContent: "center",
+                          alignItems: "center",
+                          borderWidth: 2,
+                          borderColor: "#FFFFFF",
+                        }}
+                      >
+                        <MaterialIcons name="navigation" size={14} color="white" />
+                      </View>
                     </View>
-                  )}
-                </View>
-              </PointAnnotation>
-            ))}
+
+                    {/* Instruction visible uniquement pour l'étape actuelle */}
+                    {index === currentStepIndex && (
+                      <View style={styles.instructionBubble}>
+                        <Text style={styles.instructionText} numberOfLines={2}>
+                          {step.instruction}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </PointAnnotation>
+              );
+            })}
 
           {/* Affichage des virages serrés sur la route */}
           {!isNavigating &&
@@ -891,5 +1144,23 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 5,
+  },
+  navigationStepWrapper: {
+    position: "relative",
+    width: 32,
+    height: 32,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  currentStepWrapper: {
+    // Effet visuel pour l'étape actuelle
+    transform: [{ scale: 1.2 }],
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
   },
 });

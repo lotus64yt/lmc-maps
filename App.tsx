@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { StyleSheet, View, TouchableOpacity, Text, Modal, Alert, Dimensions } from "react-native";
+import {
+  StyleSheet,
+  View,
+  TouchableOpacity,
+  Text,
+  Modal,
+  Alert,
+  Dimensions,
+} from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
-import * as Location from 'expo-location';
+import * as Location from "expo-location";
 import MapContainer from "./components/MapContainer";
 import ControlButtons from "./components/ControlButtons";
 import ExpandableSearch from "./components/ExpandableSearch";
@@ -24,7 +32,6 @@ import { HybridNavigationNotificationService } from "./services/HybridNavigation
 import { LastTripStorage, LastTripData } from "./services/LastTripStorage";
 import ResumeTripModal from "./components/ResumeTripModal";
 import { SafetyTestConfig } from "./config/SafetyTestConfig";
-import SpeedLimitIndicator from "./components/SpeedLimitIndicator";
 
 export default function Map() {
   return (
@@ -66,6 +73,15 @@ function MapContent() {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isRecalculatingRoute, setIsRecalculatingRoute] = useState(false);
 
+  // États pour la progression de navigation
+  const [completedRouteCoords, setCompletedRouteCoords] = useState<
+    { latitude: number; longitude: number }[]
+  >([]);
+  const [remainingRouteCoords, setRemainingRouteCoords] = useState<
+    { latitude: number; longitude: number }[]
+  >([]);
+  const [progressPercentage, setProgressPercentage] = useState(0);
+
   // États pour le parking
   const [showParkingDrawer, setShowParkingDrawer] = useState(false);
   const [parkingLocation, setParkingLocation] = useState<{
@@ -80,13 +96,21 @@ function MapContent() {
   // États pour le système de sécurité routière
   const [showSafetyModal, setShowSafetyModal] = useState(false);
   const [showRestReminder, setShowRestReminder] = useState(false);
-  const [safetyChoice, setSafetyChoice] = useState<'remind' | 'rest-stops' | 'ignore' | null>(null);
-  const [restReminderTimer, setRestReminderTimer] = useState<NodeJS.Timeout | null>(null);
-  const [navigationStartTime, setNavigationStartTime] = useState<Date | null>(null);
+  const [safetyChoice, setSafetyChoice] = useState<
+    "remind" | "rest-stops" | "ignore" | null
+  >(null);
+  const [restReminderTimer, setRestReminderTimer] =
+    useState<NodeJS.Timeout | null>(null);
+  const [navigationStartTime, setNavigationStartTime] = useState<Date | null>(
+    null
+  );
   const [longTripDuration, setLongTripDuration] = useState<number>(0); // en minutes
-  
+
   // Position personnalisée pour la recherche POI (position future pour sécurité routière)
-  const [customPOILocation, setCustomPOILocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [customPOILocation, setCustomPOILocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const [isFutureLocationSearch, setIsFutureLocationSearch] = useState(false);
   // Au démarrage, charger le dernier trajet inachevé
   useEffect(() => {
@@ -130,7 +154,6 @@ function MapContent() {
 
   // Fonctions pour le système de sécurité routière
   const checkTripSafety = (durationInMinutes: number) => {
-    console.log(`[Safety] Checking trip duration: ${durationInMinutes} minutes (threshold: ${SafetyTestConfig.LONG_TRIP_THRESHOLD_MINUTES} minutes)`);
     if (durationInMinutes > SafetyTestConfig.LONG_TRIP_THRESHOLD_MINUTES) {
       setLongTripDuration(durationInMinutes);
       setShowSafetyModal(true);
@@ -139,30 +162,30 @@ function MapContent() {
     return false;
   };
 
-  const handleSafetyChoice = (choice: 'remind' | 'rest-stops' | 'ignore') => {
+  const handleSafetyChoice = (choice: "remind" | "rest-stops" | "ignore") => {
     setSafetyChoice(choice);
     setShowSafetyModal(false);
-    
+
     switch (choice) {
-      case 'remind':
+      case "remind":
         // Programmer un rappel dans 2 heures (config automatique selon le mode test/production)
-const reminderTimer = setTimeout(() => {
+        const reminderTimer = setTimeout(() => {
           setShowRestReminder(true);
         }, SafetyTestConfig.getReminderDelayMs());
         setRestReminderTimer(reminderTimer);
         setNavigationStartTime(new Date());
         break;
-        
-      case 'rest-stops':
+
+      case "rest-stops":
         // Rechercher et ajouter des aires de repos automatiquement
         handleFindRestStops();
         break;
-        
-      case 'ignore':
+
+      case "ignore":
         // Ne rien faire, continuer normalement
         break;
     }
-    
+
     // Démarrer la navigation maintenant
     startNavigationAfterSafetyChoice();
   };
@@ -172,7 +195,7 @@ const reminderTimer = setTimeout(() => {
       // Utiliser le mode de transport approprié
       const transportMode = navigationMode || "driving";
       let osrmMode = "driving";
-      
+
       if (transportMode === "walking") {
         osrmMode = "foot";
         startWalkingNavigation();
@@ -193,37 +216,49 @@ const reminderTimer = setTimeout(() => {
   };
 
   // Fonction pour calculer la position estimée dans X heures selon la route
-  const calculateFuturePosition = (hoursAhead: number): { latitude: number; longitude: number } | null => {
-    if (!location || !routeCoords || routeCoords.length === 0 || !isNavigating) {
-return null;
+  const calculateFuturePosition = (
+    hoursAhead: number
+  ): { latitude: number; longitude: number } | null => {
+    if (
+      !location ||
+      !routeCoords ||
+      routeCoords.length === 0 ||
+      !isNavigating
+    ) {
+      return null;
     }
 
     // Vitesse moyenne estimée selon le mode de transport (km/h)
     const averageSpeeds = {
-      driving: 50,    // 50 km/h en moyenne (ville + route)
-      walking: 5,     // 5 km/h à pied
-      cycling: 15     // 15 km/h à vélo
+      driving: 50, // 50 km/h en moyenne (ville + route)
+      walking: 5, // 5 km/h à pied
+      cycling: 15, // 15 km/h à vélo
     };
-    
-    const currentSpeed = averageSpeeds[navigationMode as keyof typeof averageSpeeds] || averageSpeeds.driving;
-    
+
+    const currentSpeed =
+      averageSpeeds[navigationMode as keyof typeof averageSpeeds] ||
+      averageSpeeds.driving;
+
     // Distance à parcourir en X heures (en kilomètres, puis convertie en mètres)
     const targetDistanceMeters = hoursAhead * currentSpeed * 1000;
-    
-    console.log(`[Safety] Calculating position ${hoursAhead}h ahead at ${currentSpeed}km/h (${targetDistanceMeters}m total)`);
 
     // Fonction pour calculer la distance entre deux points
-    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const getDistance = (
+      lat1: number,
+      lon1: number,
+      lat2: number,
+      lon2: number
+    ): number => {
       const R = 6371e3; // Rayon de la Terre en mètres
-      const φ1 = lat1 * Math.PI/180;
-      const φ2 = lat2 * Math.PI/180;
-      const Δφ = (lat2-lat1) * Math.PI/180;
-      const Δλ = (lon2-lon1) * Math.PI/180;
+      const φ1 = (lat1 * Math.PI) / 180;
+      const φ2 = (lat2 * Math.PI) / 180;
+      const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+      const Δλ = ((lon2 - lon1) * Math.PI) / 180;
 
-      const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                Math.cos(φ1) * Math.cos(φ2) *
-                Math.sin(Δλ/2) * Math.sin(Δλ/2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      const a =
+        Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+        Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
       return R * c;
     };
@@ -236,11 +271,13 @@ return null;
     // Trouver le point de route le plus proche de notre position actuelle
     let closestPointIndex = 0;
     let minDistance = Infinity;
-    
+
     for (let i = 0; i < routeCoords.length; i++) {
       const distance = getDistance(
-        currentLat, currentLon,
-        routeCoords[i].latitude, routeCoords[i].longitude
+        currentLat,
+        currentLon,
+        routeCoords[i].latitude,
+        routeCoords[i].longitude
       );
       if (distance < minDistance) {
         minDistance = distance;
@@ -248,91 +285,92 @@ return null;
       }
     }
 
-    console.log(`[Safety] Closest route point: index ${closestPointIndex}, distance ${minDistance.toFixed(0)}m`);
-
     // Partir du point le plus proche et avancer sur la route
     for (let i = closestPointIndex; i < routeCoords.length - 1; i++) {
       const pointA = routeCoords[i];
       const pointB = routeCoords[i + 1];
-      
+
       const segmentDistance = getDistance(
-        pointA.latitude, pointA.longitude,
-        pointB.latitude, pointB.longitude
+        pointA.latitude,
+        pointA.longitude,
+        pointB.latitude,
+        pointB.longitude
       );
 
       if (accumulatedDistance + segmentDistance >= targetDistanceMeters) {
         // La position cible est sur ce segment
         const remainingDistance = targetDistanceMeters - accumulatedDistance;
         const ratio = remainingDistance / segmentDistance;
-        
+
         const futurePosition = {
-          latitude: pointA.latitude + (pointB.latitude - pointA.latitude) * ratio,
-          longitude: pointA.longitude + (pointB.longitude - pointA.longitude) * ratio
+          latitude:
+            pointA.latitude + (pointB.latitude - pointA.latitude) * ratio,
+          longitude:
+            pointA.longitude + (pointB.longitude - pointA.longitude) * ratio,
         };
-        
-        console.log(`[Safety] Future position calculated: ${futurePosition.latitude.toFixed(6)}, ${futurePosition.longitude.toFixed(6)}`);
+
         return futurePosition;
       }
-      
+
       accumulatedDistance += segmentDistance;
     }
 
     // Si on arrive ici, la destination est plus proche que X heures
     // Retourner la destination finale
     const finalPosition = routeCoords[routeCoords.length - 1];
-return finalPosition;
+    return finalPosition;
   };
 
   const handleFindRestStops = async () => {
     if (!location) return;
-    
+
     try {
       // Calculer la position dans 2 heures (ou selon la config)
-      const twoHoursFromNow = calculateFuturePosition(SafetyTestConfig.IS_TEST_MODE ? 0.17 : 2); // 10 minutes en mode test, 2h en production
-      
+      const twoHoursFromNow = calculateFuturePosition(
+        SafetyTestConfig.IS_TEST_MODE ? 0.17 : 2
+      ); // 10 minutes en mode test, 2h en production
+
       if (!twoHoursFromNow) {
-// Fallback sur la position actuelle si on ne peut pas calculer
+        // Fallback sur la position actuelle si on ne peut pas calculer
         setCustomPOILocation(null);
         setIsFutureLocationSearch(false);
-        handleShowPOI('fuel');
+        handleShowPOI("fuel");
         return;
       }
-      
-      console.log(`[Safety] Searching for rest stops near future position: ${twoHoursFromNow.latitude.toFixed(6)}, ${twoHoursFromNow.longitude.toFixed(6)}`);
-      
+
       // Définir la position personnalisée pour la recherche POI
       setCustomPOILocation(twoHoursFromNow);
       setIsFutureLocationSearch(true);
-      
-      console.log(`[Safety] Future position for rest stops: ${SafetyTestConfig.formatDuration(SafetyTestConfig.IS_TEST_MODE ? 10 : 120)} ahead`);
-handleShowPOI('fuel'); // Commencer par les stations essence qui ont souvent des aires de repos
-      
+
+      handleShowPOI("fuel"); // Commencer par les stations essence qui ont souvent des aires de repos
     } catch (error) {
-      console.error('Erreur lors de la recherche d\'aires de repos:', error);
+      console.error("Erreur lors de la recherche d'aires de repos:", error);
       // Fallback sur la position actuelle
       setCustomPOILocation(null);
       setIsFutureLocationSearch(false);
-      handleShowPOI('fuel');
+      handleShowPOI("fuel");
     }
   };
 
-  const handleRestReminderAction = (action: 'rest' | 'find-stop' | 'ignore') => {
+  const handleRestReminderAction = (
+    action: "rest" | "find-stop" | "ignore"
+  ) => {
     setShowRestReminder(false);
-    
+
     switch (action) {
-      case 'rest':
+      case "rest":
         // Proposer de chercher une aire de repos
         handleFindRestStops();
         break;
-        
-      case 'find-stop':
+
+      case "find-stop":
         // Chercher directement des aires de repos
         handleFindRestStops();
         break;
-        
-      case 'ignore':
+
+      case "ignore":
         // Programmer un nouveau rappel dans 2 heures (config automatique selon le mode test/production)
-const newReminderTimer = setTimeout(() => {
+        const newReminderTimer = setTimeout(() => {
           setShowRestReminder(true);
         }, SafetyTestConfig.getRepeatedReminderDelayMs());
         setRestReminderTimer(newReminderTimer);
@@ -381,13 +419,19 @@ const newReminderTimer = setTimeout(() => {
   const [showNavigationSearch, setShowNavigationSearch] = useState(false);
 
   // Fonction utilitaire pour calculer les coordonnées ajustées selon le drawer padding
-  const getAdjustedCoordinate = (coordinate: Coordinate, zoomLevel?: number, pitch?: number) => {
+  const getAdjustedCoordinate = (
+    coordinate: Coordinate,
+    zoomLevel?: number,
+    pitch?: number
+  ) => {
     const screenHeight = Dimensions.get("window").height;
     const latitudeDelta = 0.01; // Delta de base, pourrait être ajusté selon le zoom
-    
+
     // Ajuster le delta selon le niveau de zoom si fourni
-    const adjustedLatitudeDelta = zoomLevel ? latitudeDelta / (zoomLevel / 13) : latitudeDelta;
-    
+    const adjustedLatitudeDelta = zoomLevel
+      ? latitudeDelta / (zoomLevel / 13)
+      : latitudeDelta;
+
     // Calcul du décalage en latitude pour compenser le DrawerPadding
     const offsetLat = (drawerPadding / screenHeight) * adjustedLatitudeDelta;
 
@@ -413,6 +457,8 @@ const newReminderTimer = setTimeout(() => {
     routeService,
     clearRoute,
     clearRouteKeepDestination,
+    // Nouvelle propriété pour la direction de la route
+    routeDirection,
   } = useLocationAndNavigation();
 
   const {
@@ -442,19 +488,27 @@ const newReminderTimer = setTimeout(() => {
     stopNavigation,
     adjustNavigationCamera,
     calculateDistance,
+    // Nouvelles fonctions pour le recentrage automatique
+    showRecenterPrompt,
+    manualRecenter,
   } = useMapControls();
+
+  // État local pour forcer l'orientation de la caméra (null = pas d'override)
+  const [cameraHeadingOverride, setCameraHeadingOverride] = useState<
+    number | null
+  >(null);
+
+  // Refs pour limiter la fréquence des appels à updateMapHeading
+  const lastSentHeadingRef = React.useRef<number | null>(null);
+  const lastSentHeadingTimeRef = React.useRef<number>(0);
 
   // Initialiser les permissions de notification au démarrage
   useEffect(() => {
     const initializeNotifications = async () => {
       try {
         await HybridNavigationNotificationService.requestPermissions();
-        console.log(
-          "Navigation notifications initialized with:",
-          HybridNavigationNotificationService.getServiceType()
-        );
       } catch (error) {
-// L'application continue de fonctionner même si les notifications ne marchent pas
+        // L'application continue de fonctionner même si les notifications ne marchent pas
       }
     };
 
@@ -462,39 +516,115 @@ const newReminderTimer = setTimeout(() => {
   }, []);
 
   useEffect(() => {
+    // En navigation, forcer la rotation de la carte pour se placer derrière la flèche
+    if (isMapNavigating) {
+      // Si on suit une route et qu'on est sur la route, utiliser le bearing de la route
+      const headingToUse =
+        routeDirection && routeDirection.isOnRoute
+          ? routeDirection.bearing
+          : currentHeading;
+
+      if (headingToUse !== undefined && headingToUse !== null) {
+        // Normaliser l'angle et éviter les appels répétés
+        const normalize = (a: number) => ((a % 360) + 360) % 360;
+        const now = Date.now();
+        const last = lastSentHeadingRef.current;
+        const lastTime = lastSentHeadingTimeRef.current;
+        const h = normalize(headingToUse);
+
+        let shouldUpdate = true;
+        if (last !== null) {
+          // Calculer la plus petite différence angulaire
+          let diff = Math.abs(h - last);
+          if (diff > 180) diff = 360 - diff;
+          // Seuil pour éviter updates infimes
+          if (diff < 2 && now - lastTime < 500) {
+            shouldUpdate = false;
+          }
+        }
+
+        if (shouldUpdate) {
+          lastSentHeadingRef.current = h;
+          lastSentHeadingTimeRef.current = now;
+          // Utiliser l'état local en priorité pour piloter la caméra
+          setCameraHeadingOverride(h);
+        }
+      }
+      return;
+    }
+
+    // Si on n'est pas en navigation, annuler tout override
+    setCameraHeadingOverride(null);
+
+    // Comportement normal : mettre à jour uniquement si on est en mode 'heading'
     if (currentHeading !== undefined && compassMode === "heading") {
       updateMapHeading(currentHeading);
     }
-  }, [currentHeading, compassMode, updateMapHeading]);
+  }, [
+    currentHeading,
+    compassMode,
+    updateMapHeading,
+    isMapNavigating,
+    routeDirection,
+  ]);
 
   // Suivre automatiquement l'utilisateur quand le mode suivi est actif
   // mais pas quand on vient de sélectionner un parking ou un point d'intérêt
   useEffect(() => {
     // PROTECTION ABSOLUE : Ne jamais suivre l'utilisateur si un parking est sélectionné
-    // ou si une animation de parking est en cours
-    if (location && isFollowingUser && !selectedParking && !showLocationInfoDrawer && !showParkingDrawer && !isParkingAnimating) {
-      console.log("🎯 Conditions de suivi utilisateur validées, suivre dans:", selectedParking ? "2000ms (parking)" : "0ms");
-      
+    // ou si une animation de parking n'est en cours
+    if (
+      location &&
+      isFollowingUser &&
+      !selectedParking &&
+      !showLocationInfoDrawer &&
+      !showParkingDrawer &&
+      !isParkingAnimating
+    ) {
       // Délai supplémentaire pour s'assurer qu'aucune animation de parking n'est en cours
       const delayBeforeFollow = selectedParking ? 2000 : 0; // 2 secondes après sélection de parking
-      
+
       setTimeout(() => {
         // Vérifier à nouveau que les conditions sont toujours valides
         if (isFollowingUser && !selectedParking && !isParkingAnimating) {
-followUserLocation(location);
+          followUserLocation(location);
         } else {
-}
+        }
       }, delayBeforeFollow);
     } else {
       if (location && isFollowingUser) {
-}
+      }
     }
-  }, [location, isFollowingUser, selectedParking, showLocationInfoDrawer, showParkingDrawer, isParkingAnimating]);
+  }, [
+    location,
+    isFollowingUser,
+    selectedParking,
+    showLocationInfoDrawer,
+    showParkingDrawer,
+    isParkingAnimating,
+  ]);
 
   // Ajuster la caméra automatiquement pendant la navigation
   useEffect(() => {
     if (location && isMapNavigating && !isParkingAnimating) {
       const currentNavState = NavigationService.getCurrentState();
+
+      const computeBearingTo = (
+        from: { latitude: number; longitude: number },
+        to: { latitude: number; longitude: number }
+      ) => {
+        const toRad = (d: number) => (d * Math.PI) / 180;
+        const toDeg = (d: number) => (d * 180) / Math.PI;
+        const lat1 = toRad(from.latitude);
+        const lat2 = toRad(to.latitude);
+        const dLon = toRad(to.longitude - from.longitude);
+        const y = Math.sin(dLon) * Math.cos(lat2);
+        const x =
+          Math.cos(lat1) * Math.sin(lat2) -
+          Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+        const brng = (toDeg(Math.atan2(y, x)) + 360) % 360;
+        return brng;
+      };
 
       if (currentNavState.nextStep && currentNavState.isNavigating) {
         const nextStepLocation = {
@@ -502,24 +632,77 @@ followUserLocation(location);
           longitude: currentNavState.nextStep.coordinates[0], // Longitude
         };
 
+        // Déterminer headingOverride : priorité au routeDirection si on est sur la route
+        let headingOverride: number | undefined;
+        if (routeDirection && routeDirection.isOnRoute) {
+          headingOverride = routeDirection.bearing;
+        } else {
+          headingOverride = computeBearingTo(location, nextStepLocation);
+        }
+
         // Passer la distance à la prochaine étape pour le zoom adaptatif
         adjustNavigationCamera(
           location,
           nextStepLocation,
-          currentNavState.distanceToNextStep
+          currentNavState.distanceToNextStep,
+          headingOverride
         );
       } else if (destination) {
         // Fallback sur la destination générale si pas d'étape spécifique
-        adjustNavigationCamera(location, destination);
+        const headingOverride =
+          routeDirection && routeDirection.isOnRoute
+            ? routeDirection.bearing
+            : computeBearingTo(location, destination);
+
+        adjustNavigationCamera(
+          location,
+          destination,
+          undefined,
+          headingOverride
+        );
       }
     }
-  }, [location, isMapNavigating, adjustNavigationCamera, isParkingAnimating]);
+  }, [
+    location,
+    isMapNavigating,
+    adjustNavigationCamera,
+    isParkingAnimating,
+    routeDirection,
+    destination,
+  ]);
 
   // Écouter les changements de NavigationService
   useEffect(() => {
     const handleNavigationUpdate = (navigationState: any) => {
       setNavigationSteps(navigationState.steps);
       setCurrentStepIndex(navigationState.currentStepIndex);
+
+      // Mettre à jour les données de progression
+      if (navigationState.completedRouteCoordinates) {
+        setCompletedRouteCoords(
+          navigationState.completedRouteCoordinates.map(
+            (coord: [number, number]) => ({
+              latitude: coord[1],
+              longitude: coord[0],
+            })
+          )
+        );
+      }
+
+      if (navigationState.remainingRouteCoordinates) {
+        setRemainingRouteCoords(
+          navigationState.remainingRouteCoordinates.map(
+            (coord: [number, number]) => ({
+              latitude: coord[1],
+              longitude: coord[0],
+            })
+          )
+        );
+      }
+
+      if (navigationState.progressPercentage !== undefined) {
+        setProgressPercentage(navigationState.progressPercentage);
+      }
     };
 
     NavigationService.addListener(handleNavigationUpdate);
@@ -533,25 +716,25 @@ followUserLocation(location);
   useEffect(() => {
     if (showRouteDrawer) {
       setDrawerPadding(300); // 300px pour le RouteDrawer
-      setDrawerCameraControl('route-drawer');
+      setDrawerCameraControl("route-drawer");
     } else if (showMultiStepDrawer) {
       setDrawerPadding(350); // 350px pour le MultiStepDrawer (un peu plus haut)
-      setDrawerCameraControl('multistep-drawer');
+      setDrawerCameraControl("multistep-drawer");
     } else if (showLocationInfoDrawer) {
       setDrawerPadding(200); // 200px pour le LocationInfoDrawer (plus petit)
-      setDrawerCameraControl('location-info-drawer');
+      setDrawerCameraControl("location-info-drawer");
     } else if (showNavigationStepDrawer) {
       setDrawerPadding(250); // 250px pour le NavigationStepDrawer
-      setDrawerCameraControl('navigation-step-drawer');
+      setDrawerCameraControl("navigation-step-drawer");
     } else if (showArrivalDrawer) {
       setDrawerPadding(400); // 400px pour le ArrivalDrawer (le plus grand)
-      setDrawerCameraControl('arrival-drawer');
+      setDrawerCameraControl("arrival-drawer");
     } else if (showParkingDrawer) {
       setDrawerPadding(350); // 350px pour le ParkingDrawer
       // Le contrôle est déjà pris dans handleSelectParking
     } else if (showPOIDrawer) {
       setDrawerPadding(320); // 320px pour le POIDrawer
-      setDrawerCameraControl('poi-drawer');
+      setDrawerCameraControl("poi-drawer");
     } else {
       clearDrawerPadding();
       releaseDrawerCameraControl(); // Relâcher le contrôle quand aucun drawer n'est ouvert
@@ -760,39 +943,42 @@ followUserLocation(location);
     if (destination && location) {
       // Vérifier si c'est un arrêt intermédiaire (avec destination finale)
       const isIntermediateStop = selectedDestination?.finalDestination;
-      
+
       if (isIntermediateStop) {
-console.log("🎯 Continuation automatique vers la destination finale...");
-        
+        // Debug: continuation to final destination
         try {
           setIsRecalculatingRoute(true);
-          
+
           const finalDestination = selectedDestination?.finalDestination;
           if (finalDestination) {
             // Calculer la route vers la destination finale
-            await getHybridRouteFromCurrentLocation(finalDestination, "driving");
-            
+            await getHybridRouteFromCurrentLocation(
+              finalDestination,
+              "driving"
+            );
+
             // Calculer les étapes de navigation vers la destination finale
             const url = `https://router.project-osrm.org/route/v1/driving/${location.longitude},${location.latitude};${finalDestination.longitude},${finalDestination.latitude}?overview=full&geometries=geojson&steps=true`;
-            
+
             const response = await fetch(url);
             const data = await response.json();
 
             if (data.routes && data.routes.length > 0) {
-              const navigationSteps = NavigationService.convertRouteToNavigationSteps(data);
-              
+              const navigationSteps =
+                NavigationService.convertRouteToNavigationSteps(data);
+
               // Redémarrer la navigation vers la destination finale
               NavigationService.startNavigation(
                 navigationSteps,
                 routeService,
                 navigationMode || "driving"
               );
-              
+
               // Mettre à jour les états
               setNavigationSteps(navigationSteps);
               setCurrentStepIndex(0);
               setDestination(finalDestination);
-              
+
               // Nettoyer la référence à l'arrêt intermédiaire
               setSelectedDestination({
                 title: "Destination finale",
@@ -800,7 +986,7 @@ console.log("🎯 Continuation automatique vers la destination finale...");
                 latitude: finalDestination.latitude,
                 longitude: finalDestination.longitude,
               });
-}
+            }
           }
         } catch (error) {
           console.error("❌ Erreur lors de la reprise de navigation:", error);
@@ -813,14 +999,14 @@ console.log("🎯 Continuation automatique vers la destination finale...");
         }
       } else {
         // Arrivée à la destination finale
-setHasReachedDestination(true);
+        setHasReachedDestination(true);
         setShowArrivalDrawer(true);
         setIsNavigating(false);
 
         // Zoom pour voir à la fois la destination et la position utilisateur avec ajustement pour le drawer
         const midLat = (destination.latitude + location.latitude) / 2;
         const midLng = (destination.longitude + location.longitude) / 2;
-        
+
         const midCoord = {
           latitude: midLat,
           longitude: midLng,
@@ -854,7 +1040,7 @@ setHasReachedDestination(true);
       // Calculer le centre entre la position de l'utilisateur et la destination
       const centerLat = (location.latitude + coordinate.latitude) / 2;
       const centerLng = (location.longitude + coordinate.longitude) / 2;
-      
+
       const centerCoord = {
         latitude: centerLat,
         longitude: centerLng,
@@ -916,8 +1102,10 @@ setHasReachedDestination(true);
 
   // Fonction pour ajouter un arrêt pendant la navigation
   const handleAddNavigationStop = async (result: any) => {
-if (!location) {
-      console.warn("⚠️ Position utilisateur non disponible pour ajouter un arrêt");
+    if (!location) {
+      console.warn(
+        "⚠️ Position utilisateur non disponible pour ajouter un arrêt"
+      );
       return;
     }
 
@@ -938,48 +1126,52 @@ if (!location) {
             text: "Ajouter l'arrêt",
             onPress: async () => {
               try {
-setIsRecalculatingRoute(true);
-                
+                setIsRecalculatingRoute(true);
+
                 // Sauvegarder la destination finale actuelle
                 const finalDestination = destination;
                 if (!finalDestination) {
                   throw new Error("Aucune destination finale trouvée");
                 }
-console.log("🛑 Arrêt à ajouter:", stopCoordinate);
-                
+                // Debug: adding stopCoordinate
+
                 // Calculer un itinéraire multi-étapes : Position actuelle -> Arrêt -> Destination finale
                 const waypoints = [
                   `${location.longitude},${location.latitude}`, // Position actuelle
                   `${stopCoordinate.longitude},${stopCoordinate.latitude}`, // Arrêt
-                  `${finalDestination.longitude},${finalDestination.latitude}` // Destination finale
+                  `${finalDestination.longitude},${finalDestination.latitude}`, // Destination finale
                 ];
-                
-                const waypointsUrl = waypoints.join(';');
+
+                const waypointsUrl = waypoints.join(";");
                 const url = `https://router.project-osrm.org/route/v1/driving/${waypointsUrl}?overview=full&geometries=geojson&steps=true`;
-const response = await fetch(url);
+                const response = await fetch(url);
                 const data = await response.json();
 
                 if (data.routes && data.routes.length > 0) {
                   // Calculer la nouvelle route hybride vers l'arrêt d'abord
-                  await getHybridRouteFromCurrentLocation(stopCoordinate, "driving");
-                  
+                  await getHybridRouteFromCurrentLocation(
+                    stopCoordinate,
+                    "driving"
+                  );
+
                   // Convertir les étapes pour NavigationService (tout l'itinéraire multi-étapes)
-                  const navigationSteps = NavigationService.convertRouteToNavigationSteps(data);
-                  
+                  const navigationSteps =
+                    NavigationService.convertRouteToNavigationSteps(data);
+
                   // Redémarrer la navigation avec l'itinéraire complet
                   NavigationService.startNavigation(
                     navigationSteps,
                     routeService,
                     navigationMode || "driving"
                   );
-                  
+
                   // Mettre à jour les étapes de navigation pour l'affichage
                   setNavigationSteps(navigationSteps);
                   setCurrentStepIndex(0);
 
                   // La destination affichée devient temporairement l'arrêt, mais la destination finale est conservée
                   setDestination(stopCoordinate);
-                  
+
                   // Stocker l'arrêt pour référence, mais garder la destination finale en mémoire
                   setSelectedDestination({
                     title: result.title,
@@ -994,30 +1186,38 @@ const response = await fetch(url);
                   if (fitToRoute) {
                     setTimeout(() => {
                       fitToRoute(
-                        { latitude: location.latitude, longitude: location.longitude },
+                        {
+                          latitude: location.latitude,
+                          longitude: location.longitude,
+                        },
                         stopCoordinate,
                         routeCoords,
                         false // Pas de drawer visible
                       );
                     }, 500); // Délai pour s'assurer que routeCoords est mis à jour
                   }
-// Afficher une notification de succès
+                  // Afficher une notification de succès
                   Alert.alert(
-                    "Arrêt ajouté avec succès", 
+                    "Arrêt ajouté avec succès",
                     `L'arrêt "${result.title}" a été ajouté à votre itinéraire. Vous continuerez ensuite vers votre destination finale.`
                   );
                 } else {
-                  throw new Error("Aucune route trouvée pour l'itinéraire avec arrêt");
+                  throw new Error(
+                    "Aucune route trouvée pour l'itinéraire avec arrêt"
+                  );
                 }
               } catch (error) {
                 console.error("❌ Erreur lors de l'ajout de l'arrêt:", error);
-                Alert.alert("Erreur", "Impossible d'ajouter cet arrêt. Veuillez réessayer.");
+                Alert.alert(
+                  "Erreur",
+                  "Impossible d'ajouter cet arrêt. Veuillez réessayer."
+                );
               } finally {
                 // Masquer le spinner de recalcul
                 setIsRecalculatingRoute(false);
               }
-            }
-          }
+            },
+          },
         ]
       );
     } catch (error) {
@@ -1027,8 +1227,10 @@ const response = await fetch(url);
 
   // Fonction pour rechercher des POI à proximité pendant la navigation
   const handleSearchNearbyPOI = async (amenityType: string) => {
-if (!location) {
-      console.warn("⚠️ Position utilisateur non disponible pour la recherche POI");
+    if (!location) {
+      console.warn(
+        "⚠️ Position utilisateur non disponible pour la recherche POI"
+      );
       return;
     }
 
@@ -1043,13 +1245,11 @@ if (!location) {
       );
 
       if (pois.length > 0) {
-        console.log(`✅ ${pois.length} POI(s) "${amenityType}" trouvé(s) à proximité`);
-        
         // Ouvrir le drawer POI avec les résultats
         setSelectedAmenityType(amenityType);
         setAllPOIs(pois);
         setShowPOIDrawer(true);
-        
+
         // Animer vers le premier POI avec un délai pour que le drawer prenne le contrôle
         const firstPOI = pois[0];
         if (firstPOI) {
@@ -1057,7 +1257,7 @@ if (!location) {
             latitude: firstPOI.lat,
             longitude: firstPOI.lon,
           };
-          
+
           // Utiliser un délai pour permettre au drawer de s'ouvrir et prendre le contrôle de la caméra
           setTimeout(() => {
             const adjustedCoord = getAdjustedCoordinate(coord, 15);
@@ -1065,14 +1265,19 @@ if (!location) {
           }, 300); // Délai de 300ms pour que le drawer soit complètement ouvert
         }
       } else {
-Alert.alert(
+        Alert.alert(
           "Aucun résultat",
-          `Aucun "${amenityType}" trouvé dans un rayon de ${searchRadius/1000}km.`
+          `Aucun "${amenityType}" trouvé dans un rayon de ${
+            searchRadius / 1000
+          }km.`
         );
       }
     } catch (error) {
       console.error("❌ Erreur lors de la recherche POI:", error);
-      Alert.alert("Erreur", "Impossible de rechercher les points d'intérêt. Veuillez réessayer.");
+      Alert.alert(
+        "Erreur",
+        "Impossible de rechercher les points d'intérêt. Veuillez réessayer."
+      );
     }
   };
 
@@ -1201,10 +1406,10 @@ Alert.alert(
 
           // Calculer la durée totale en minutes pour le check de sécurité
           const routeDurationMinutes = Math.round(data.routes[0].duration / 60);
-          
+
           // Vérifier si c'est un long trajet (plus de 2h)
           const isLongTrip = checkTripSafety(routeDurationMinutes);
-          
+
           if (isLongTrip) {
             // Le modal de sécurité va s'afficher, mais on prépare la navigation
             setNavigationSteps(navigationSteps);
@@ -1407,10 +1612,10 @@ Alert.alert(
 
           // Calculer la durée totale en minutes pour le check de sécurité
           const routeDurationMinutes = Math.round(route.duration / 60);
-          
+
           // Vérifier si c'est un long trajet (plus de 2h)
           const isLongTrip = checkTripSafety(routeDurationMinutes);
-          
+
           if (isLongTrip) {
             // Le modal de sécurité va s'afficher, mais on prépare la navigation
             setNavigationSteps(navigationSteps);
@@ -1430,7 +1635,7 @@ Alert.alert(
           setIsNavigating(true);
         } else if (transportMode === "walking") {
           // Si pas de route disponible en mode marche, utiliser la ligne directe
-setIsNavigating(true);
+          setIsNavigating(true);
         }
       } catch (error) {
         console.error(
@@ -1540,7 +1745,7 @@ setIsNavigating(true);
     latitude: number;
     longitude: number;
   }) => {
-setParkingLocation(location);
+    setParkingLocation(location);
     setShowParkingDrawer(true);
 
     // Fermer l'ArrivalDrawer quand le ParkingDrawer s'ouvre
@@ -1549,7 +1754,7 @@ setParkingLocation(location);
 
   // Fonction pour effacer les étapes de navigation
   const handleClearSteps = () => {
-// Effacer les étapes multi-étapes
+    // Effacer les étapes multi-étapes
     setRouteSteps([]);
 
     // Effacer les coordonnées de route multi-étapes
@@ -1571,28 +1776,28 @@ setParkingLocation(location);
     // Effacer seulement les coordonnées de route, mais garder la destination
     // pour permettre la navigation vers un parking
     clearRouteKeepDestination();
-};
+  };
 
   // Fonctions pour gérer le ParkingDrawer
   const handleCloseParkingDrawer = () => {
     setShowParkingDrawer(false);
     setParkingLocation(null);
-    
+
     // RELÂCHER le contrôle exclusif de la caméra
-    releaseDrawerCameraControl('parking-drawer');
-    
+    releaseDrawerCameraControl("parking-drawer");
+
     // Délai avant de nettoyer le parking sélectionné pour éviter les animations conflictuelles
     setTimeout(() => {
       setSelectedParking(null); // Nettoyer le parking sélectionné
       setIsParkingAnimating(false); // Réactiver les animations automatiques
-}, 200);
-    
+    }, 200);
+
     // NE PAS réactiver automatiquement le suivi utilisateur
     // L'utilisateur doit le faire manuellement via les contrôles si souhaité
   };
 
   const handleSelectParking = (parking: any, useExactSpot?: boolean) => {
-// Déterminer les coordonnées du parking
+    // Déterminer les coordonnées du parking
     // Essayer différentes structures possibles
     const parkingCoordinate = {
       latitude:
@@ -1604,16 +1809,16 @@ setParkingLocation(location);
         parking.coordinates?.[0] ||
         parking.longitude,
     };
-// BLOQUER TOUTES LES ANIMATIONS AUTOMATIQUES pendant la sélection du parking
+    // BLOQUER TOUTES LES ANIMATIONS AUTOMATIQUES pendant la sélection du parking
     setIsParkingAnimating(true);
 
     // LE PARKING DRAWER PREND LE CONTRÔLE EXCLUSIF DE LA CAMÉRA
-    setDrawerCameraControl('parking-drawer');
+    setDrawerCameraControl("parking-drawer");
 
     // FORCER la désactivation du suivi utilisateur avant l'animation
     // Cela empêche le useEffect de followUserLocation d'interférer
     const wasFollowing = disableFollowModeTemporarily();
-    
+
     // Mettre à jour l'état du parking sélectionné pour l'afficher sur la carte
     setSelectedParking({
       coordinate: parkingCoordinate,
@@ -1622,8 +1827,8 @@ setParkingLocation(location);
 
     // Pour la vue de parking, utiliser les coordonnées exactes SANS ajustement de drawer
     // Car le parking doit être centré exactement au bon endroit avec vue de haut
-    console.log("🎥 Animation caméra vers parking (coordonnées exactes, vue de haut) - VERROUILLÉ:", parkingCoordinate);
-    
+    // Debug: animating camera to selected parkingCoordinate (locked)
+
     // Utiliser l'animation verrouillée pour éviter les conflits
     setTimeout(() => {
       // Utiliser les coordonnées exactes du parking avec une légère correction vers le sud
@@ -1632,16 +1837,16 @@ setParkingLocation(location);
         latitude: parkingCoordinate.latitude - 0.00045, // Légère correction vers le sud
         longitude: parkingCoordinate.longitude,
       };
-animateToCoordinateLocked(correctedCoordinate, 18, 0); // Animation verrouillée avec vue de haut (pitch=0)
-      
+      animateToCoordinateLocked(correctedCoordinate, 18, 0); // Animation verrouillée avec vue de haut (pitch=0)
+
       // Réactiver les animations automatiques après l'animation du parking (délai plus long pour sécurité)
       setTimeout(() => {
         setIsParkingAnimating(false);
-// NOTE: On ne relâche PAS le contrôle caméra ici - seulement quand le drawer se ferme
+        // NOTE: On ne relâche PAS le contrôle caméra ici - seulement quand le drawer se ferme
       }, 2500); // 2.5 secondes pour être sûr que l'animation est complètement terminée
     }, 150); // Délai initial légèrement plus long
 
-    // Fermer le drawer d'arrivée s'il est ouvert
+    // Fermer l'ArrivalDrawer s'il est ouvert
     setShowArrivalDrawer(false);
 
     // Le drawer de parking reste ouvert pour montrer les détails du parking sélectionné
@@ -1649,7 +1854,7 @@ animateToCoordinateLocked(correctedCoordinate, 18, 0); // Animation verrouillée
 
   // Fonction pour naviguer vers l'entrée du parking
   const handleNavigateToParking = async (parking: any) => {
-if (!location) {
+    if (!location) {
       console.warn("⚠️ Position utilisateur non disponible pour la navigation");
       return;
     }
@@ -1680,7 +1885,9 @@ if (!location) {
         out geom;
       `;
 
-      const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
+      const overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(
+        overpassQuery
+      )}`;
       const response = await fetch(overpassUrl);
       const data = await response.json();
 
@@ -1688,8 +1895,6 @@ if (!location) {
 
       // Si on trouve des entrées, utiliser la plus proche
       if (data.elements && data.elements.length > 0) {
-        console.log(`🚪 ${data.elements.length} entrée(s) trouvée(s) pour le parking`);
-        
         // Trouver l'entrée la plus proche de la position utilisateur
         let closestEntrance = data.elements[0];
         let minDistance = Infinity;
@@ -1701,7 +1906,7 @@ if (!location) {
             entrance.lat,
             entrance.lon
           );
-          
+
           if (distance < minDistance) {
             minDistance = distance;
             closestEntrance = entrance;
@@ -1712,8 +1917,8 @@ if (!location) {
           latitude: closestEntrance.lat,
           longitude: closestEntrance.lon,
         };
-} else {
-}
+      } else {
+      }
 
       // Fermer le drawer de parking
       setShowParkingDrawer(false);
@@ -1750,10 +1955,12 @@ if (!location) {
 
       // Ouvrir le RouteDrawer pour la navigation
       setShowRouteDrawer(true);
-
     } catch (error) {
-      console.error("❌ Erreur lors de la recherche d'entrée de parking:", error);
-      
+      console.error(
+        "❌ Erreur lors de la recherche d'entrée de parking:",
+        error
+      );
+
       // En cas d'erreur, naviguer directement vers le parking
       const parkingCoordinate = {
         latitude:
@@ -1847,6 +2054,7 @@ if (!location) {
 
       <>
         <MapContainer
+          mapHeadingOverride={cameraHeadingOverride}
           location={location}
           headingAnim={headingAnim}
           destination={destination}
@@ -1873,6 +2081,12 @@ if (!location) {
           selectedLocationCoordinate={selectedLocationCoordinate}
           // Props pour le parking sélectionné
           selectedParking={selectedParking}
+          // Nouvelles props pour la progression de navigation
+          completedRouteCoords={completedRouteCoords}
+          remainingRouteCoords={remainingRouteCoords}
+          progressPercentage={progressPercentage}
+          // Nouvelle prop pour la direction de la route
+          routeDirection={routeDirection}
         />
 
         <ControlButtons
@@ -1881,12 +2095,6 @@ if (!location) {
           compassMode={compassMode}
           isFollowingUser={isFollowingUser}
           isNavigating={isNavigating}
-        />
-
-        {/* Indicateur de limite de vitesse pendant la navigation */}
-        <SpeedLimitIndicator
-          visible={isNavigating}
-          currentLocation={location}
         />
 
         <RouteDrawer
@@ -1920,7 +2128,6 @@ if (!location) {
           preloadedPois={allPOIs.length > 0 ? allPOIs : undefined}
           isNavigating={isNavigating}
           onCameraMove={(coordinate, offset) => {
-            console.log(`🎥 App.tsx - onCameraMove called with:`, { coordinate, offset });
             if (coordinate) {
               // Animer vers les coordonnées du POI avec offset personnalisé ou ajustement par défaut
               setTimeout(() => {
@@ -1934,21 +2141,18 @@ if (!location) {
                     longitude: coordinate.longitude,
                     pitch: 0,
                   };
-                  console.log(`🎥 App.tsx - Moving camera to adjusted coordinates:`, adjustedCoord);
                   animateToCoordinate(adjustedCoord);
                 } else {
                   // Utiliser l'ajustement par défaut
                   const adjustedCoord = getAdjustedCoordinate(coordinate);
-                  console.log(`🎥 App.tsx - Moving camera to default adjusted coordinates:`, adjustedCoord);
                   animateToCoordinate(adjustedCoord);
                 }
               }, 100);
             } else {
               // Animer vers la position de l'utilisateur avec ajustement pour le drawer
               if (location) {
-                setTimeout(() => {
+                               setTimeout(() => {
                   const adjustedCoord = getAdjustedCoordinate(location);
-                  console.log(`🎥 App.tsx - Moving camera to user location:`, adjustedCoord);
                   animateToCoordinate(adjustedCoord);
                 }, 100);
               }
@@ -1959,10 +2163,12 @@ if (!location) {
             const result = {
               id: `poi_${poi.id}`,
               title: poi.tags.name || poi.tags.amenity || "POI",
-              subtitle: poi.tags.addr_street || `${poi.tags.amenity} - ${Math.round(poi.distance || 0)}m`,
+              subtitle:
+                poi.tags.addr_street ||
+                `${poi.tags.amenity} - ${Math.round(poi.distance || 0)}m`,
               latitude: poi.lat,
               longitude: poi.lon,
-              type: 'overpass' as const,
+              type: "overpass" as const,
               amenityType: poi.tags.amenity,
             };
             handleAddNavigationStop(result);
@@ -1999,7 +2205,7 @@ if (!location) {
         />
 
         <NavigationGuidance
-          visible={isNavigating}
+          visible={isNavigating || isMapNavigating}
           onStop={handleStopNavigation}
           onShowAllSteps={() => {
             if (
@@ -2018,6 +2224,9 @@ if (!location) {
           }}
           onAddNavigationStep={() => setShowNavigationSearch(true)}
           isRecalculatingRoute={isRecalculatingRoute}
+          showRecenterPrompt={showRecenterPrompt}
+          onManualRecenter={manualRecenter}
+          currentLocation={location}
         />
 
         <LocationInfoDrawer
@@ -2085,35 +2294,53 @@ if (!location) {
                 <MaterialIcons name="warning" size={32} color="#FF9500" />
                 <Text style={styles.modalTitle}>Sécurité routière</Text>
               </View>
-              
+
               <Text style={styles.modalDescription}>
-                Votre trajet dure plus de 2 heures ({Math.round(longTripDuration / 60)}h{String(longTripDuration % 60).padStart(2, '0')}). 
-                Pour votre sécurité et celle des autres usagers, il est recommandé de faire une pause ou de changer de conducteur toutes les 2 heures.
+                Votre trajet dure plus de 2 heures (
+                {Math.round(longTripDuration / 60)}h
+                {String(longTripDuration % 60).padStart(2, "0")}). Pour votre
+                sécurité et celle des autres usagers, il est recommandé de faire
+                une pause ou de changer de conducteur toutes les 2 heures.
               </Text>
 
               <View style={styles.modalButtonsVertical}>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalButtonPrimary]}
-                  onPress={() => handleSafetyChoice('remind')}
+                  onPress={() => handleSafetyChoice("remind")}
                 >
                   <MaterialIcons name="access-time" size={20} color="#FFF" />
-                  <Text style={styles.modalButtonTextPrimary}>Me rappeler dans 2h</Text>
+                  <Text style={styles.modalButtonTextPrimary}>
+                    Me rappeler dans 2h
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalButtonSecondary]}
-                  onPress={() => handleSafetyChoice('rest-stops')}
+                  onPress={() => handleSafetyChoice("rest-stops")}
                 >
-                  <MaterialIcons name="local-gas-station" size={20} color="#007AFF" />
-                  <Text style={styles.modalButtonTextSecondary}>Trouver des aires de repos</Text>
+                  <MaterialIcons
+                    name="local-gas-station"
+                    size={20}
+                    color="#007AFF"
+                  />
+                  <Text style={styles.modalButtonTextSecondary}>
+                    Trouver des aires de repos
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalButtonSecondary]}
-                  onPress={() => handleSafetyChoice('ignore')}
+                  onPress={() => handleSafetyChoice("ignore")}
                 >
                   <MaterialIcons name="close" size={20} color="#FF3B30" />
-                  <Text style={[styles.modalButtonTextSecondary, { color: '#FF3B30' }]}>Ignorer et continuer</Text>
+                  <Text
+                    style={[
+                      styles.modalButtonTextSecondary,
+                      { color: "#FF3B30" },
+                    ]}
+                  >
+                    Ignorer et continuer
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -2133,35 +2360,51 @@ if (!location) {
                 <MaterialIcons name="schedule" size={32} color="#FF9500" />
                 <Text style={styles.modalTitle}>Temps de pause</Text>
               </View>
-              
+
               <Text style={styles.modalDescription}>
-                Il est temps de faire une pause ! Vous conduisez depuis 2 heures. 
-                Prenez quelques minutes pour vous reposer ou cherchez une aire de repos à proximité.
+                Il est temps de faire une pause ! Vous conduisez depuis 2
+                heures. Prenez quelques minutes pour vous reposer ou cherchez
+                une aire de repos à proximité.
               </Text>
 
               <View style={styles.modalButtonsVertical}>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalButtonPrimary]}
-                  onPress={() => handleRestReminderAction('find-stop')}
+                  onPress={() => handleRestReminderAction("find-stop")}
                 >
-                  <MaterialIcons name="local-gas-station" size={20} color="#FFF" />
-                  <Text style={styles.modalButtonTextPrimary}>Trouver une aire de repos</Text>
+                  <MaterialIcons
+                    name="local-gas-station"
+                    size={20}
+                    color="#FFF"
+                  />
+                  <Text style={styles.modalButtonTextPrimary}>
+                    Trouver une aire de repos
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalButtonSecondary]}
-                  onPress={() => handleRestReminderAction('rest')}
+                  onPress={() => handleRestReminderAction("rest")}
                 >
                   <MaterialIcons name="pause" size={20} color="#007AFF" />
-                  <Text style={styles.modalButtonTextSecondary}>Je prends une pause ici</Text>
+                  <Text style={styles.modalButtonTextSecondary}>
+                    Je prends une pause ici
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalButtonSecondary]}
-                  onPress={() => handleRestReminderAction('ignore')}
+                  onPress={() => handleRestReminderAction("ignore")}
                 >
                   <MaterialIcons name="schedule" size={20} color="#FF9500" />
-                  <Text style={[styles.modalButtonTextSecondary, { color: '#FF9500' }]}>Rappeler dans 2h</Text>
+                  <Text
+                    style={[
+                      styles.modalButtonTextSecondary,
+                      { color: "#FF9500" },
+                    ]}
+                  >
+                    Rappeler dans 2h
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>

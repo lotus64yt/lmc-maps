@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -9,12 +9,16 @@ import {
   Vibration,
   Modal,
   ActivityIndicator,
-} from 'react-native';
-import { MaterialIcons as Icon } from '@expo/vector-icons';
-import NavigationService from '../services/NavigationService';
-import { NavigationState } from '../types/RouteTypes';
-import { formatDistance, formatDurationFromSeconds } from '../utils/formatUtils';
-import AllStepsDrawer from './AllStepsDrawer';
+} from "react-native";
+import { MaterialIcons as Icon } from "@expo/vector-icons";
+import NavigationService from "../services/NavigationService";
+import { NavigationState } from "../types/RouteTypes";
+import {
+  formatDistance,
+  formatDurationFromSeconds,
+} from "../utils/formatUtils";
+import AllStepsDrawer from "./AllStepsDrawer";
+import SpeedLimitIndicator from "./SpeedLimitIndicator";
 
 interface NavigationGuidanceProps {
   visible: boolean;
@@ -22,9 +26,21 @@ interface NavigationGuidanceProps {
   onShowAllSteps?: () => void; // Callback to adjust map view when drawer opens
   onAddNavigationStep?: () => void; // Nouveau callback pour ajouter une étape
   isRecalculatingRoute?: boolean; // Nouvel état pour afficher le spinner de recalcul
+  showRecenterPrompt?: boolean; // Afficher le prompt de recentrage
+  onManualRecenter?: () => void; // Callback pour le recentrage manuel
+  currentLocation?: { latitude: number; longitude: number } | null; // Position actuelle pour le SpeedLimitIndicator
 }
 
-export default function NavigationGuidance({ visible, onStop, onShowAllSteps, onAddNavigationStep, isRecalculatingRoute = false }: NavigationGuidanceProps) {
+export default function NavigationGuidance({
+  visible,
+  onStop,
+  onShowAllSteps,
+  onAddNavigationStep,
+  isRecalculatingRoute = false,
+  showRecenterPrompt = false,
+  onManualRecenter,
+  currentLocation,
+}: NavigationGuidanceProps) {
   const [navigationState, setNavigationState] = useState<NavigationState>(
     NavigationService.getCurrentState()
   );
@@ -82,7 +98,7 @@ export default function NavigationGuidance({ visible, onStop, onShowAllSteps, on
     handleStopNavigation();
   };
 
-  if (!visible || !navigationState.isNavigating) {
+  if (!visible) {
     return null;
   }
 
@@ -93,17 +109,21 @@ export default function NavigationGuidance({ visible, onStop, onShowAllSteps, on
         <View style={styles.topGuidance}>
           <View style={styles.maneuverContainer}>
             <Icon
-              name={NavigationService.getManeuverIcon(navigationState.nextStep?.maneuver || 'straight') as any}
+              name={
+                NavigationService.getManeuverIcon(
+                  navigationState.nextStep?.maneuver || "straight"
+                ) as any
+              }
               size={32}
               color="#007AFF"
             />
           </View>
           <View style={styles.instructionContainer}>
             <Text style={styles.instruction} numberOfLines={2}>
-              {navigationState.nextStep?.instruction || 'Continuer tout droit'}
+              {navigationState.nextStep?.instruction || "Continuer tout droit"}
             </Text>
             <Text style={styles.streetName} numberOfLines={1}>
-              {navigationState.nextStep?.streetName || ''}
+              {navigationState.nextStep?.streetName || ""}
             </Text>
           </View>
           <View style={styles.distanceContainer}>
@@ -111,11 +131,11 @@ export default function NavigationGuidance({ visible, onStop, onShowAllSteps, on
               {formatDistance(navigationState.distanceToNextStep)}
             </Text>
             <Text style={styles.direction}>
-              {navigationState.nextStep?.direction || ''}
+              {navigationState.nextStep?.direction || ""}
             </Text>
           </View>
         </View>
-        
+
         {/* Barre de recalcul */}
         {isRecalculatingRoute && (
           <View style={styles.recalculatingBar}>
@@ -125,79 +145,100 @@ export default function NavigationGuidance({ visible, onStop, onShowAllSteps, on
         )}
       </SafeAreaView>
 
-      {/* Barre de statut en bas - Informations globales */}
+      {/* Barre de statut en bas - Informations globales ou prompt de recentrage */}
       <View style={styles.bottomGuidance}>
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Icon name="schedule" size={20} color="#666" />
-            <Text style={styles.statLabel}>Temps restant</Text>
-            <Text style={styles.statValue}>
-              {formatDurationFromSeconds(navigationState.remainingDuration)}
-            </Text>
-          </View>
-          
-          <View style={styles.separator} />
-          
-          <View style={styles.statItem}>
-            <Icon name="straighten" size={20} color="#666" />
-            <Text style={styles.statLabel}>Distance</Text>
-            <Text style={styles.statValue}>
-              {formatDistance(navigationState.remainingDistance)}
-            </Text>
-          </View>
-          
-          <View style={styles.separator} />
-          
-          <TouchableOpacity style={styles.statItem} onPress={handleOpenStepsDrawer}>
-            <Icon name="list" size={20} color="#007AFF" />
-            <Text style={styles.statLabel}>Étapes</Text>
-            <Text style={styles.stepCounter}>
-              {navigationState.currentStepIndex + 1}/{navigationState.steps.length}
-            </Text>
+        {showRecenterPrompt ? (
+          // Affichage du prompt de recentrage
+          <TouchableOpacity
+            onPress={onManualRecenter}
+          >
+            <View style={styles.recenterPromptContainer}>
+              <Text style={styles.recenterText}>Recentrer ?</Text>
+              <Icon name="my-location" size={24} color="#007AFF" />
+            </View>
           </TouchableOpacity>
-        </View>
+        ) : (
+          // Affichage normal des statistiques
+          <View style={styles.statsContainer}>
+            <View style={styles.statItem}>
+              <Icon name="schedule" size={20} color="#666" />
+              <Text style={styles.statLabel}>Temps restant</Text>
+              <Text style={styles.statValue}>
+                {formatDurationFromSeconds(navigationState.remainingDuration)}
+              </Text>
+            </View>
 
-        <TouchableOpacity 
-          style={styles.menuButton}
-          onPress={handleMenuToggle}
-        >
+            <View style={styles.separator} />
+
+            <View style={styles.statItem}>
+              <Icon name="straighten" size={20} color="#666" />
+              <Text style={styles.statLabel}>Distance</Text>
+              <Text style={styles.statValue}>
+                {formatDistance(navigationState.remainingDistance)}
+              </Text>
+            </View>
+
+            <View style={styles.separator} />
+
+            <TouchableOpacity
+              style={styles.statItem}
+              onPress={handleOpenStepsDrawer}
+            >
+              <Icon name="list" size={20} color="#007AFF" />
+              <Text style={styles.statLabel}>Étapes</Text>
+              <Text style={styles.stepCounter}>
+                {navigationState.currentStepIndex + 1}/
+                {navigationState.steps.length}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <TouchableOpacity style={styles.menuButton} onPress={handleMenuToggle}>
           <Icon name="more-vert" size={24} color="white" />
         </TouchableOpacity>
       </View>
 
+      {/* Indicateur de limite de vitesse - en dessous du bandeau de navigation */}
+      <SpeedLimitIndicator
+        visible={visible}
+        currentLocation={currentLocation}
+      />
+
       {/* Menu contextuel */}
-      <Modal
-        visible={showMenu}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowMenu(false)}
-      >
-        <TouchableOpacity 
-          style={styles.menuOverlay}
-          activeOpacity={1}
-          onPress={() => setShowMenu(false)}
+      {!showRecenterPrompt && (
+        <Modal
+          visible={showMenu}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowMenu(false)}
         >
-          <View style={styles.menuContainer}>
-            <TouchableOpacity 
-              style={styles.menuItem}
-              onPress={handleAddStep}
-            >
-              <Icon name="add-location" size={20} color="#333" />
-              <Text style={styles.menuItemText}>Ajouter une étape</Text>
-            </TouchableOpacity>
-            
-            <View style={styles.menuSeparator} />
-            
-            <TouchableOpacity 
-              style={[styles.menuItem, styles.menuItemDanger]}
-              onPress={handleStopFromMenu}
-            >
-              <Icon name="stop" size={20} color="#FF3B30" />
-              <Text style={[styles.menuItemText, styles.menuItemTextDanger]}>Arrêter la navigation</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+          <TouchableOpacity
+            style={styles.menuOverlay}
+            activeOpacity={1}
+            onPress={() => setShowMenu(false)}
+          >
+            <View style={styles.menuContainer}>
+              <TouchableOpacity style={styles.menuItem} onPress={handleAddStep}>
+                <Icon name="add-location" size={20} color="#333" />
+                <Text style={styles.menuItemText}>Ajouter une étape</Text>
+              </TouchableOpacity>
+
+              <View style={styles.menuSeparator} />
+
+              <TouchableOpacity
+                style={[styles.menuItem, styles.menuItemDanger]}
+                onPress={handleStopFromMenu}
+              >
+                <Icon name="stop" size={20} color="#FF3B30" />
+                <Text style={[styles.menuItemText, styles.menuItemTextDanger]}>
+                  Arrêter la navigation
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
 
       {/* AllStepsDrawer */}
       <AllStepsDrawer
@@ -205,10 +246,18 @@ export default function NavigationGuidance({ visible, onStop, onShowAllSteps, on
         onClose={handleCloseStepsDrawer}
         steps={navigationState.steps}
         currentStepIndex={navigationState.currentStepIndex}
-        totalDistance={navigationState.steps.reduce((total, step) => total + step.distance, 0)}
-        totalDuration={navigationState.steps.reduce((total, step) => total + step.duration, 0)}
+        totalDistance={navigationState.steps.reduce(
+          (total, step) => total + step.distance,
+          0
+        )}
+        totalDuration={navigationState.steps.reduce(
+          (total, step) => total + step.duration,
+          0
+        )}
         remainingDistance={navigationState.remainingDistance}
         remainingDuration={navigationState.remainingDuration}
+        distanceToNextStep={navigationState.distanceToNextStep}
+        currentStepDistance={navigationState.steps[navigationState.currentStepIndex]?.distance || 0}
       />
     </Animated.View>
   );
@@ -216,26 +265,26 @@ export default function NavigationGuidance({ visible, onStop, onShowAllSteps, on
 
 const styles = StyleSheet.create({
   container: {
-    position: 'absolute',
+    position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
     zIndex: 1000,
-    pointerEvents: 'box-none',
+    pointerEvents: "box-none",
   },
-  
+
   // Barre de guidage en haut
   topGuidance: {
-    backgroundColor: 'white',
-    flexDirection: 'row',
-    alignItems: 'center',
+    backgroundColor: "white",
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 12,
     marginHorizontal: 12,
     marginTop: 12,
     borderRadius: 12,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 2,
@@ -247,10 +296,10 @@ const styles = StyleSheet.create({
   maneuverContainer: {
     width: 48,
     height: 48,
-    backgroundColor: '#F0F8FF',
+    backgroundColor: "#F0F8FF",
     borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: 12,
   },
   instructionContainer: {
@@ -259,41 +308,41 @@ const styles = StyleSheet.create({
   },
   instruction: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: "600",
+    color: "#333",
     marginBottom: 2,
   },
   streetName: {
     fontSize: 14,
-    color: '#666',
+    color: "#666",
   },
   distanceContainer: {
-    alignItems: 'flex-end',
+    alignItems: "flex-end",
   },
   distanceToNext: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#007AFF',
+    fontWeight: "bold",
+    color: "#007AFF",
   },
   direction: {
     fontSize: 12,
-    color: '#666',
+    color: "#666",
     marginTop: 2,
   },
 
   // Barre de statut en bas
   bottomGuidance: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    flexDirection: 'row',
-    alignItems: 'center',
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 12,
     paddingBottom: 34, // Pour l'encoche iPhone
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: -2,
@@ -304,68 +353,68 @@ const styles = StyleSheet.create({
   },
   statsContainer: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   statItem: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: "center",
   },
   statLabel: {
     fontSize: 12,
-    color: '#666',
+    color: "#666",
     marginTop: 2,
   },
   statValue: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: "600",
+    color: "#333",
     marginTop: 2,
   },
   stepCounter: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#007AFF',
+    fontWeight: "600",
+    color: "#007AFF",
     marginTop: 2,
   },
   separator: {
     width: 1,
     height: 30,
-    backgroundColor: '#E0E0E0',
+    backgroundColor: "#E0E0E0",
     marginHorizontal: 8,
   },
   stopButton: {
     width: 48,
     height: 48,
-    backgroundColor: '#FF3B30',
+    backgroundColor: "#FF3B30",
     borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginLeft: 16,
   },
   menuButton: {
     width: 48,
     height: 48,
-    backgroundColor: '#666',
+    backgroundColor: "#666",
     borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginLeft: 16,
   },
   menuOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
     paddingBottom: 100, // Espacement au-dessus de la barre de navigation
   },
   menuContainer: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
     paddingVertical: 8,
     marginHorizontal: 16,
     marginBottom: 16,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: -2,
@@ -375,8 +424,8 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 16,
   },
@@ -385,37 +434,56 @@ const styles = StyleSheet.create({
   },
   menuItemText: {
     fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
+    fontWeight: "500",
+    color: "#333",
     marginLeft: 12,
   },
   menuItemTextDanger: {
-    color: '#FF3B30',
-    fontWeight: '600',
+    color: "#FF3B30",
+    fontWeight: "600",
   },
   menuSeparator: {
     height: 1,
-    backgroundColor: '#E0E0E0',
+    backgroundColor: "#E0E0E0",
     marginHorizontal: 16,
   },
 
   // Styles pour la barre de recalcul
   recalculatingBar: {
-    backgroundColor: '#F0F0F0',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#F0F0F0",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: 8,
     marginHorizontal: 12,
     marginTop: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderColor: "#E0E0E0",
   },
   recalculatingText: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#007AFF',
+    fontWeight: "500",
+    color: "#007AFF",
     marginLeft: 8,
+  },
+
+  // Styles pour le prompt de recentrage
+  recenterPromptContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: "#F8F9FA",
+    borderRadius: 12,
+    marginHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+  },
+  recenterText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
   },
 });
