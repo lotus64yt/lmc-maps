@@ -16,7 +16,7 @@
                 }
             ]
         ],
-        "name": "LMC Maps Alpha V.02",
+        "name": "LMC Maps DEV",
         "slug": "lmc-maps",
         "version": "1.0.0",
         "orientation": "portrait",
@@ -36,7 +36,7 @@
                 "foregroundImage": "./assets/favicon.png",
                 "backgroundColor": "#ffffff"
             },
-            "package": "com.lotus64.lmcmapsv02",
+            "package": "com.lotus64.lmcmaps",
             "permissions": [
                 "android.permission.ACCESS_FINE_LOCATION",
                 "android.permission.ACCESS_COARSE_LOCATION",

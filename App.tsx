@@ -28,7 +28,6 @@ import { OverpassPOI, OverpassService } from "./services/OverpassService";
 import { RouteStep } from "./types/RouteTypes";
 import { Coordinate } from "./services/RouteService";
 import NavigationService from "./services/NavigationService";
-import { HybridNavigationNotificationService } from "./services/HybridNavigationNotificationService";
 import { LastTripStorage, LastTripData } from "./services/LastTripStorage";
 import ResumeTripModal from "./components/ResumeTripModal";
 import { SafetyTestConfig } from "./config/SafetyTestConfig";
@@ -422,21 +421,49 @@ function MapContent() {
   const getAdjustedCoordinate = (
     coordinate: Coordinate,
     zoomLevel?: number,
-    pitch?: number
+    pitch?: number,
+    drawerHeight: number = 0 // hauteur du drawer en pixels (0 si aucun)
   ) => {
     const screenHeight = Dimensions.get("window").height;
-    const latitudeDelta = 0.01; // Delta de base, pourrait être ajusté selon le zoom
 
-    // Ajuster le delta selon le niveau de zoom si fourni
-    const adjustedLatitudeDelta = zoomLevel
-      ? latitudeDelta / (zoomLevel / 13)
-      : latitudeDelta;
+    // Si aucun drawer, conserver le comportement centré par défaut
+    if (!drawerHeight || drawerHeight <= 0) {
+      return {
+        latitude: coordinate.latitude,
+        longitude: coordinate.longitude,
+        pitch: pitch || 0,
+      };
+    }
 
-    // Calcul du décalage en latitude pour compenser le DrawerPadding
-    const offsetLat = (drawerPadding / screenHeight) * adjustedLatitudeDelta;
+    // Placer le POI légèrement au-dessus du drawer (marge fixe) plutôt que
+    // centrer la zone visible — évite des offsets trop importants.
+    const DEFAULT_MARGIN_PX = 80; // distance en pixels au-dessus du drawer
+    const margin = DEFAULT_MARGIN_PX;
+
+    // Calculer la position Y désirée en pixels depuis le haut de l'écran
+    let desiredY = screenHeight - drawerHeight - margin;
+    // Clamp pour éviter valeurs extrêmes
+    const minY = 40;
+    const maxY = screenHeight - drawerHeight - 10;
+    if (desiredY < minY) desiredY = minY;
+    if (desiredY > maxY) desiredY = maxY;
+
+    const screenCenterY = screenHeight / 2;
+    const pixelOffset = desiredY - screenCenterY; // négatif si above center
+
+    // Estimer les mètres/pixel en WebMercator pour le zoom donné
+    const usedZoom = zoomLevel || 13;
+    const latRad = (coordinate.latitude * Math.PI) / 180;
+    // m/px = 156543.03392 * cos(lat) / 2^zoom
+    const metersPerPixel = (156543.03392 * Math.cos(latRad)) / Math.pow(2, usedZoom);
+
+    // Convertir pixels -> mètres -> degrés latitude
+    const metersPerDegreeLat = 111320; // approx. à la latitude moyenne
+    const offsetMeters = pixelOffset * metersPerPixel;
+    const offsetLat = offsetMeters / metersPerDegreeLat;
 
     return {
-      latitude: coordinate.latitude + offsetLat, // Décaler vers le nord selon le padding
+      latitude: coordinate.latitude + offsetLat,
       longitude: coordinate.longitude,
       pitch: pitch || 0,
     };
@@ -501,19 +528,6 @@ function MapContent() {
   // Refs pour limiter la fréquence des appels à updateMapHeading
   const lastSentHeadingRef = React.useRef<number | null>(null);
   const lastSentHeadingTimeRef = React.useRef<number>(0);
-
-  // Initialiser les permissions de notification au démarrage
-  useEffect(() => {
-    const initializeNotifications = async () => {
-      try {
-        await HybridNavigationNotificationService.requestPermissions();
-      } catch (error) {
-        // L'application continue de fonctionner même si les notifications ne marchent pas
-      }
-    };
-
-    initializeNotifications();
-  }, []);
 
   useEffect(() => {
     // En navigation, forcer la rotation de la carte pour se placer derrière la flèche
@@ -715,7 +729,7 @@ function MapContent() {
   // Gérer le padding du viewport quand les drawers s'ouvrent/ferment
   useEffect(() => {
     if (showRouteDrawer) {
-      setDrawerPadding(300); // 300px pour le RouteDrawer
+      setDrawerPadding(180); // réduire le padding pour laisser plus d'espace pour la carte
       setDrawerCameraControl("route-drawer");
     } else if (showMultiStepDrawer) {
       setDrawerPadding(350); // 350px pour le MultiStepDrawer (un peu plus haut)
@@ -733,7 +747,7 @@ function MapContent() {
       setDrawerPadding(350); // 350px pour le ParkingDrawer
       // Le contrôle est déjà pris dans handleSelectParking
     } else if (showPOIDrawer) {
-      setDrawerPadding(320); // 320px pour le POIDrawer
+      setDrawerPadding(400);
       setDrawerCameraControl("poi-drawer");
     } else {
       clearDrawerPadding();
@@ -818,7 +832,7 @@ function MapContent() {
       );
     } else {
       // Si pas de localisation, simplement animer vers la destination avec ajustement pour le drawer
-      const adjustedCoord = getAdjustedCoordinate(coord);
+  const adjustedCoord = getAdjustedCoordinate(coord, undefined, undefined, 0);
       animateToCoordinate(adjustedCoord);
     }
 
@@ -915,7 +929,7 @@ function MapContent() {
         latitude: step.coordinates[1], // Latitude
         longitude: step.coordinates[0], // Longitude
       };
-      const adjustedCoord = getAdjustedCoordinate(coord, 17);
+  const adjustedCoord = getAdjustedCoordinate(coord, 17, undefined, 250); // navigation-step drawer height ~250
       animateToCoordinate(adjustedCoord, 17); // Zoom plus serré pour voir l'étape en détail
     }
   };
@@ -1011,7 +1025,7 @@ function MapContent() {
           latitude: midLat,
           longitude: midLng,
         };
-        const adjustedCoord = getAdjustedCoordinate(midCoord, 15);
+  const adjustedCoord = getAdjustedCoordinate(midCoord, 15, undefined, 400); // arrival drawer ~400
 
         animateToCoordinate(adjustedCoord, 15); // Zoom pour voir les deux points
       }
@@ -1045,7 +1059,7 @@ function MapContent() {
         latitude: centerLat,
         longitude: centerLng,
       };
-      const adjustedCoord = getAdjustedCoordinate(centerCoord, 16);
+  const adjustedCoord = getAdjustedCoordinate(centerCoord, 16, undefined, 400); // arrival drawer ~400
 
       animateToCoordinate(adjustedCoord, 16); // Zoom approprié pour voir les deux points
     }
@@ -1260,7 +1274,7 @@ function MapContent() {
 
           // Utiliser un délai pour permettre au drawer de s'ouvrir et prendre le contrôle de la caméra
           setTimeout(() => {
-            const adjustedCoord = getAdjustedCoordinate(coord, 15);
+            const adjustedCoord = getAdjustedCoordinate(coord, 15, undefined, 400); // POI drawer ~400
             animateToCoordinate(adjustedCoord, 15); // Zoom pour voir la zone
           }, 300); // Délai de 300ms pour que le drawer soit complètement ouvert
         }
@@ -1477,6 +1491,11 @@ function MapContent() {
   const handleSelectPOI = (poi: OverpassPOI) => {
     setSelectedPOI(poi);
 
+    // Désactiver temporairement le suivi utilisateur pour que l'animation
+    // vers le POI ne soit pas immédiatement annulée par le mode 'follow'
+    const wasFollowing = disableFollowModeTemporarily();
+    setWasFollowingBeforeRoute(wasFollowing);
+
     // Centrer la carte sur le POI sélectionné avec ajustement pour le drawer
     // Utiliser un délai pour s'assurer que le drawer POI a déjà le contrôle de la caméra
     setTimeout(() => {
@@ -1484,15 +1503,23 @@ function MapContent() {
         latitude: poi.lat,
         longitude: poi.lon,
       };
-      const adjustedCoord = getAdjustedCoordinate(coord);
-      animateToCoordinate(adjustedCoord);
-    }, 100); // Petit délai pour éviter les conflits de priorité caméra
+      // Utiliser le padding courant du drawer si disponible pour un meilleur ajustement
+  const drawerH = typeof drawerPadding === 'number' ? drawerPadding : 400;
+      const adjustedCoord = getAdjustedCoordinate(coord, 16, undefined, drawerH);
+      // Utiliser l'animation verrouillée (forcer) pour éviter qu'un autre contrôleur
+      // (drawer, follow-mode, etc.) n'ignore la requête de caméra.
+      // Passer explicitement zoom et pitch pour un résultat prévisible.
+      animateToCoordinateLocked(adjustedCoord, 16, adjustedCoord.pitch || 0);
+    }, 350); // Légèrement plus long pour laisser le drawer finir son animation
   };
 
   const handlePOIRoute = async (poi: OverpassPOI, transportMode: string) => {
     // Mémoriser si le mode suivi était actif et le désactiver temporairement
     const wasFollowing = disableFollowModeTemporarily();
     setWasFollowingBeforeRoute(wasFollowing);
+
+  // Quand on lance la navigation vers ce POI, on retire la sélection visuelle
+  setSelectedPOI(null);
 
     // Préparer la destination pour le RouteDrawer
     const destination = {
@@ -1735,7 +1762,7 @@ function MapContent() {
         longitude: destination.longitude,
       };
       setDestination(coord);
-      const adjustedCoord = getAdjustedCoordinate(coord);
+  const adjustedCoord = getAdjustedCoordinate(coord, undefined, undefined, 350); // multi-step drawer ~350
       animateToCoordinate(adjustedCoord);
     }
   };
@@ -2007,6 +2034,33 @@ function MapContent() {
               ? { latitude: location.latitude, longitude: location.longitude }
               : null
           }
+          onCameraMove={(coordinate, offset) => {
+            if (coordinate) {
+              setTimeout(() => {
+                if (offset) {
+                  const screenHeight = Dimensions.get("window").height;
+                  const latitudeDelta = 0.01;
+                  const offsetLat = (offset.y / screenHeight) * latitudeDelta;
+                  const adjustedCoord = {
+                    latitude: coordinate.latitude + offsetLat,
+                    longitude: coordinate.longitude,
+                    pitch: 0,
+                  };
+                  animateToCoordinateLocked(adjustedCoord);
+                } else {
+                  const adjustedCoord = getAdjustedCoordinate(coordinate, undefined, undefined, 0);
+                  animateToCoordinateLocked(adjustedCoord);
+                }
+              }, 100);
+            } else {
+              if (location) {
+                setTimeout(() => {
+                  const adjustedCoord = getAdjustedCoordinate(location, undefined, undefined, 0);
+                  animateToCoordinateLocked(adjustedCoord);
+                }, 100);
+              }
+            }
+          }}
         />
       )}
 
@@ -2036,6 +2090,33 @@ function MapContent() {
           placeholder="Rechercher un arrêt..."
           autoExpand={true}
           onClose={() => setShowNavigationSearch(false)}
+          onCameraMove={(coordinate, offset) => {
+            if (coordinate) {
+              setTimeout(() => {
+                if (offset) {
+                  const screenHeight = Dimensions.get("window").height;
+                  const latitudeDelta = 0.01;
+                  const offsetLat = (offset.y / screenHeight) * latitudeDelta;
+                  const adjustedCoord = {
+                    latitude: coordinate.latitude + offsetLat,
+                    longitude: coordinate.longitude,
+                    pitch: 0,
+                  };
+                  animateToCoordinateLocked(adjustedCoord);
+                } else {
+                  const adjustedCoord = getAdjustedCoordinate(coordinate, undefined, undefined, 0);
+                  animateToCoordinateLocked(adjustedCoord);
+                }
+              }, 100);
+            } else {
+              if (location) {
+                setTimeout(() => {
+                  const adjustedCoord = getAdjustedCoordinate(location, undefined, undefined, 0);
+                  animateToCoordinateLocked(adjustedCoord);
+                }, 100);
+              }
+            }
+          }}
         />
       )}
 
@@ -2108,6 +2189,8 @@ function MapContent() {
               ? { latitude: location.latitude, longitude: location.longitude }
               : null
           }
+          isCalculatingRoute={routeService ? routeService.isCalculating : false}
+          isOsrmAvailable={routeService ? routeService.isOsrmAvailable : true}
         />
 
         <POIDrawer
@@ -2131,20 +2214,13 @@ function MapContent() {
             if (coordinate) {
               // Animer vers les coordonnées du POI avec offset personnalisé ou ajustement par défaut
               setTimeout(() => {
-                if (offset) {
-                  // Utiliser l'offset fourni par le POIDrawer
-                  const screenHeight = Dimensions.get("window").height;
-                  const latitudeDelta = 0.01;
-                  const offsetLat = (offset.y / screenHeight) * latitudeDelta;
-                  const adjustedCoord = {
-                    latitude: coordinate.latitude + offsetLat,
-                    longitude: coordinate.longitude,
-                    pitch: 0,
-                  };
+                if (offset && typeof offset.y === 'number') {
+                  // Traiter offset.y comme la hauteur du drawer (en pixels)
+                  const adjustedCoord = getAdjustedCoordinate(coordinate, undefined, undefined, offset.y);
                   animateToCoordinate(adjustedCoord);
                 } else {
-                  // Utiliser l'ajustement par défaut
-                  const adjustedCoord = getAdjustedCoordinate(coordinate);
+                  // Utiliser l'ajustement par défaut (pas de drawer)
+                  const adjustedCoord = getAdjustedCoordinate(coordinate, undefined, undefined, 0);
                   animateToCoordinate(adjustedCoord);
                 }
               }, 100);
@@ -2152,7 +2228,7 @@ function MapContent() {
               // Animer vers la position de l'utilisateur avec ajustement pour le drawer
               if (location) {
                                setTimeout(() => {
-                  const adjustedCoord = getAdjustedCoordinate(location);
+                  const adjustedCoord = getAdjustedCoordinate(location, undefined, undefined, 0);
                   animateToCoordinate(adjustedCoord);
                 }, 100);
               }

@@ -95,6 +95,7 @@ export default function LocationInfoDrawer({
   
   const translateY = useRef(new Animated.Value(DRAWER_HEIGHT)).current;
   const lastRequestTime = useRef<number>(0);
+  const ignorePanResponderRef = useRef(false);
 
   // Fonction pour récupérer des photos via l'API Unsplash
   const fetchPlacePhotos = async (placeName: string, location: Coordinate) => {
@@ -347,7 +348,10 @@ continue;
   }, [visible]);
 
   const panResponder = PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
     onMoveShouldSetPanResponder: (evt, gestureState) => {
+      // If inner content (ScrollView) signaled a touch, let it handle the gesture
+      if (ignorePanResponderRef.current) return false;
       return Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
     },
     onPanResponderMove: (evt, gestureState) => {
@@ -434,7 +438,25 @@ continue;
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        // Let the ScrollView handle touches so inner scrolling works
+        onStartShouldSetResponder={() => {
+          ignorePanResponderRef.current = true;
+          return false;
+        }}
+        onMoveShouldSetResponder={() => {
+          ignorePanResponderRef.current = true;
+          return false;
+        }}
+        onResponderRelease={() => {
+          // restore pan responder after inner interaction ends
+          setTimeout(() => {
+            ignorePanResponderRef.current = false;
+          }, 50);
+        }}
+      >
         {loading && (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#007AFF" />

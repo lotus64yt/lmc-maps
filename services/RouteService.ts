@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export interface Coordinate {
   latitude: number;
@@ -16,6 +16,8 @@ export interface RouteService {
   destination: Coordinate | null;
   routeInfo: RouteInfo | null;
   isCalculating: boolean;
+  isOsrmAvailable: boolean;
+  lastOsrmCheck?: number;
   getRoute: (start: Coordinate, end: Coordinate, mode?: string) => Promise<boolean>;
   getMultiStepRoute: (waypoints: Coordinate[], mode?: string) => Promise<boolean>;
   clearRoute: () => void;
@@ -38,6 +40,8 @@ export function useRouteService(): RouteService {
   const [destination, setDestination] = useState<Coordinate | null>(null);
   const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
   const [isCalculating, setIsCalculating] = useState<boolean>(false);
+  const [isOsrmAvailable, setIsOsrmAvailable] = useState<boolean>(true);
+  const [lastOsrmCheck, setLastOsrmCheck] = useState<number | undefined>(undefined);
   
   // Nouveaux états pour le tracé hybride
   const [directLineCoords, setDirectLineCoords] = useState<Coordinate[]>([]);
@@ -49,6 +53,9 @@ export function useRouteService(): RouteService {
     location: Coordinate,
     mode: string = 'driving'
   ): Promise<Coordinate | null> => {
+  // Ensure OSRM is reachable before calling
+  const ok = await checkOsrmAvailable();
+  if (!ok) return null;
     try {
       const osrmMode = mode === 'bicycling' ? 'bike' : mode;
       
@@ -73,6 +80,43 @@ export function useRouteService(): RouteService {
     }
   };
 
+  // Check OSRM availability with a lightweight request and short timeout
+  const OSRM_HEALTH_CHECK_URL = `https://router.project-osrm.org/route/v1/driving/2.3522,48.8566;2.3522,48.8566?overview=false`;
+
+  const checkOsrmAvailable = async (timeoutMs = 4000): Promise<boolean> => {
+    try {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), timeoutMs);
+      const res = await fetch(OSRM_HEALTH_CHECK_URL, { method: 'GET', signal: controller.signal });
+      clearTimeout(id);
+      const ok = res && res.ok;
+      setIsOsrmAvailable(ok);
+      setLastOsrmCheck(Date.now());
+      return ok;
+    } catch (e) {
+      setIsOsrmAvailable(false);
+      setLastOsrmCheck(Date.now());
+      return false;
+    }
+  };
+
+  // Poll OSRM health periodically
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      // Do an initial quick check
+      if (!mounted) return;
+      await checkOsrmAvailable();
+    })();
+    const interval = setInterval(() => {
+      checkOsrmAvailable();
+    }, 30000); // every 30s
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   // Fonction modifiée pour créer un tracé hybride (vol d'oiseau + route)
   const getHybridRoute = async (
     start: Coordinate, 
@@ -82,6 +126,12 @@ export function useRouteService(): RouteService {
     setIsCalculating(true);
     
     try {
+      // quick preflight: if OSRM appears down, skip and return false
+      const ok = await checkOsrmAvailable();
+      if (!ok) {
+        console.warn('OSRM appears to be unavailable, skipping route calculation');
+        return false;
+      }
       // 1. Corriger la position de départ si on est très proche d'une route
       const correctedStart = await correctPositionToRoad(start, mode);
       
@@ -195,7 +245,9 @@ export function useRouteService(): RouteService {
       
     } catch (error) {
       console.error("Erreur lors du calcul de l'itinéraire hybride:", error);
-      return false;
+  // mark OSRM as down on network errors
+  setIsOsrmAvailable(false);
+  return false;
     } finally {
       setIsCalculating(false);
     }
@@ -278,13 +330,18 @@ export function useRouteService(): RouteService {
     setIsCalculating(true);
     
     try {
+      const ok = await checkOsrmAvailable();
+      if (!ok) {
+        console.warn('OSRM appears to be unavailable, skipping route calculation');
+        return false;
+      }
       // Convertir le mode si nécessaire
       const osrmMode = mode === 'bicycling' ? 'bike' : mode;
       
       const url = `https://router.project-osrm.org/route/v1/${osrmMode}/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true`;
       
-      const response = await fetch(url);
-      const data = await response.json();
+  const response = await fetch(url);
+  const data = await response.json();
       
       if (data.routes && data.routes.length > 0) {
         const route = data.routes[0];
@@ -318,6 +375,7 @@ export function useRouteService(): RouteService {
       }
     } catch (error) {
       console.error("Erreur lors du calcul de l'itinéraire:", error);
+      setIsOsrmAvailable(false);
       return false;
     } finally {
       setIsCalculating(false);
@@ -336,6 +394,11 @@ export function useRouteService(): RouteService {
     setIsCalculating(true);
     
     try {
+      const ok = await checkOsrmAvailable();
+      if (!ok) {
+        console.warn('OSRM appears to be unavailable, skipping multi-step route calculation');
+        return false;
+      }
       const osrmMode = mode === 'bicycling' ? 'bike' : mode;
       
       // Construire la chaîne de coordonnées
@@ -345,8 +408,8 @@ export function useRouteService(): RouteService {
       
       const url = `https://router.project-osrm.org/route/v1/${osrmMode}/${coordsString}?overview=full&geometries=geojson&steps=true`;
       
-      const response = await fetch(url);
-      const data = await response.json();
+  const response = await fetch(url);
+  const data = await response.json();
       
       if (data.routes && data.routes.length > 0) {
         const route = data.routes[0];
@@ -382,6 +445,7 @@ export function useRouteService(): RouteService {
       }
     } catch (error) {
       console.error("Erreur lors du calcul de l'itinéraire multi-étapes:", error);
+      setIsOsrmAvailable(false);
       return false;
     } finally {
       setIsCalculating(false);
@@ -490,6 +554,8 @@ export function useRouteService(): RouteService {
     destination,
     routeInfo,
     isCalculating,
+  isOsrmAvailable,
+  lastOsrmCheck,
     getRoute,
     getMultiStepRoute,
     getHybridRoute,

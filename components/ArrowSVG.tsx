@@ -8,6 +8,7 @@ interface NavigationArrowProps {
   width?: number;
   height?: number;
   styleTransform?: any;
+  isNavigating?: boolean;
   onClick?: () => void;
 }
 
@@ -34,9 +35,9 @@ const NavigationArrow: React.FC<NavigationArrowProps> = ({
         // borderColor: "white",
       }}
     >
-      <MaterialIcons 
-        name="navigation" 
-        size={size} 
+      <MaterialIcons
+        name="navigation"
+        size={size}
         color={color}
         // style={{
         //   // Ajout d'une ombre pour améliorer le contraste

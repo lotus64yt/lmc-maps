@@ -19,7 +19,6 @@ import {
 } from "../services/NominatimService";
 import {
   RouteHistoryService,
-  HistoryItem,
 } from "../services/RouteHistoryService";
 import { OverpassService, OverpassPOI } from "../services/OverpassService";
 import OverPassAmenityList, {
@@ -195,6 +194,7 @@ interface ExpandableSearchProps {
   onSearchNearbyPOI?: (amenityType: string) => void;
   autoExpand?: boolean; // Nouveau prop pour auto-expansion
   onClose?: () => void; // Nouveau prop pour fermer le modal
+  onCameraMove?: (coordinate: { latitude: number; longitude: number } | null, offset?: { x: number; y: number }) => void;
 }
 
 export default function ExpandableSearch({
@@ -211,8 +211,13 @@ export default function ExpandableSearch({
   onSearchNearbyPOI,
   autoExpand = false,
   onClose,
+  onCameraMove,
 }: ExpandableSearchProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  // Accordion state for POI categories (collapsed by default)
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
+  const animatedHeightsRef = useRef<Record<string, Animated.Value>>({});
+  const animatedRotationsRef = useRef<Record<string, Animated.Value>>({});
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchMode, setSearchMode] = useState<"address" | "poi">("address");
@@ -222,6 +227,7 @@ export default function ExpandableSearch({
 
   // Animation pour l'expansion
   const expandAnim = useRef(new Animated.Value(0)).current;
+  const expandedInputRef = useRef<TextInput | null>(null);
 
   // Charger l'historique au démarrage
   useEffect(() => {
@@ -506,7 +512,7 @@ export default function ExpandableSearch({
         groupedByType[category].forEach((amenity, index) => {
           poiResults.push({
             id: `poi_${amenity.value}_${index}`,
-            title: `${getCategoryEmoji(amenity.type)} ${amenity.label}`,
+            title: `${amenity.label}`,
             subtitle:
               amenity.description ||
               `Rechercher des ${amenity.label.toLowerCase()} à proximité`,
@@ -584,6 +590,18 @@ export default function ExpandableSearch({
         }).then(() => {
           loadHistory(); // Recharger l'historique
         });
+      }
+
+      // If this is an Overpass POI with coordinates, optionally move camera so the POI appears above drawers
+      if (result.type === 'overpass' && onCameraMove && result.latitude && result.longitude) {
+  // Use a reasonable offset to show the POI above most drawers (y in pixels)
+  const offset = { x: 0, y: 400 };
+        try {
+          // Slight delay to avoid clashing with modal animations
+          setTimeout(() => onCameraMove && onCameraMove({ latitude: result.latitude, longitude: result.longitude }, offset), 80);
+        } catch (e) {
+          // ignore
+        }
       }
 
       onSelectLocation(result);
@@ -848,19 +866,82 @@ export default function ExpandableSearch({
     ]
   );
 
+  // Group searchResults into categories for POI mode
+  const groupedCategories = React.useMemo(() => {
+    const groups: Array<{ key: string; header: SearchResult; items: SearchResult[] }> = [];
+    let current: { key: string; header: SearchResult; items: SearchResult[] } | null = null;
+
+    (searchResults || []).forEach((item) => {
+      if (item.amenityType && item.amenityType.startsWith('category_')) {
+        current = { key: item.id, header: item, items: [] };
+        groups.push(current);
+      } else if (current) {
+        current.items.push(item);
+      }
+    });
+
+    return groups;
+  }, [searchResults]);
+
+  // Initialize animated values for categories when groupedCategories changes
+  React.useEffect(() => {
+    groupedCategories.forEach((group) => {
+      const key = group.key;
+      if (!animatedHeightsRef.current[key]) {
+        animatedHeightsRef.current[key] = new Animated.Value(0);
+      }
+      if (!animatedRotationsRef.current[key]) {
+        animatedRotationsRef.current[key] = new Animated.Value(0);
+      }
+      setExpandedCategories((prev) => (prev.hasOwnProperty(key) ? prev : { ...prev, [key]: false }));
+    });
+  }, [groupedCategories]);
+
+  const toggleCategory = (key: string, itemCount: number) => {
+    const isExpanded = !!expandedCategories[key];
+    const rowHeight = 64; // approximate height per item row
+    const contentHeight = itemCount * rowHeight;
+    const heightAnim = animatedHeightsRef.current[key];
+    const rotateAnim = animatedRotationsRef.current[key];
+    if (!heightAnim || !rotateAnim) return;
+
+    Animated.parallel([
+      Animated.timing(heightAnim, {
+        toValue: isExpanded ? 0 : contentHeight,
+        duration: 250,
+        useNativeDriver: false,
+      }),
+      Animated.timing(rotateAnim, {
+        toValue: isExpanded ? 0 : 1,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    setExpandedCategories((prev) => ({ ...prev, [key]: !isExpanded }));
+  };
+
   return (
     <>
       {/* Barre de recherche normale */}
       {!isNavigating && (
         <View style={styles.searchContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder={placeholder}
-            value={""}
-            onChangeText={handleTextChange}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
-          />
+          {/* When collapsed, the input must not open keyboard. Tap opens full search modal and then focuses. */}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            style={styles.searchInputTouchable}
+            onPress={() => {
+              setIsExpanded(true);
+              // focus the expanded input after modal mounts
+              setTimeout(() => {
+                expandedInputRef.current?.focus();
+              }, 60);
+            }}
+          >
+            <Text style={styles.searchInputText} numberOfLines={1}>
+              {value && value.length > 0 ? value : placeholder}
+            </Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.searchButton}
             onPress={handleSearchPress}
@@ -891,6 +972,7 @@ export default function ExpandableSearch({
             </TouchableOpacity>
 
             <TextInput
+              ref={(r) => (expandedInputRef.current = r)}
               style={styles.expandedInput}
               placeholder={placeholder}
               value={value}
@@ -976,7 +1058,8 @@ export default function ExpandableSearch({
                 style={styles.quickPOIButton}
                 onPress={() => {
                   Vibration.vibrate(50);
-                  onSearchNearbyPOI("fuel");
+                  if (onSearchNearbyPOI) onSearchNearbyPOI("fuel");
+                  else if (onShowPOI) onShowPOI("fuel");
                   setIsExpanded(false);
                 }}
               >
@@ -988,7 +1071,8 @@ export default function ExpandableSearch({
                 style={styles.quickPOIButton}
                 onPress={() => {
                   Vibration.vibrate(50);
-                  onSearchNearbyPOI("parking");
+                  if (onSearchNearbyPOI) onSearchNearbyPOI("parking");
+                  else if (onShowPOI) onShowPOI("parking");
                   setIsExpanded(false);
                 }}
               >
@@ -1000,7 +1084,8 @@ export default function ExpandableSearch({
                 style={styles.quickPOIButton}
                 onPress={() => {
                   Vibration.vibrate(50);
-                  onSearchNearbyPOI("restaurant");
+                  if (onSearchNearbyPOI) onSearchNearbyPOI("restaurant");
+                  else if (onShowPOI) onShowPOI("restaurant");
                   setIsExpanded(false);
                 }}
               >
@@ -1012,7 +1097,8 @@ export default function ExpandableSearch({
                 style={styles.quickPOIButton}
                 onPress={() => {
                   Vibration.vibrate(50);
-                  onSearchNearbyPOI("hospital");
+                  if (onSearchNearbyPOI) onSearchNearbyPOI("hospital");
+                  else if (onShowPOI) onShowPOI("hospital");
                   setIsExpanded(false);
                 }}
               >
@@ -1024,7 +1110,8 @@ export default function ExpandableSearch({
                 style={styles.quickPOIButton}
                 onPress={() => {
                   Vibration.vibrate(50);
-                  onSearchNearbyPOI("pharmacy");
+                  if (onSearchNearbyPOI) onSearchNearbyPOI("pharmacy");
+                  else if (onShowPOI) onShowPOI("pharmacy");
                   setIsExpanded(false);
                 }}
               >
@@ -1131,6 +1218,22 @@ const styles = StyleSheet.create({
     zIndex: 10,
     flexDirection: "row",
     alignItems: "center",
+  },
+  searchInputTouchable: {
+    flex: 1,
+    backgroundColor: 'white',
+    padding: 12,
+    borderRadius: 10,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    justifyContent: 'center',
+  },
+  searchInputText: {
+    color: '#666',
+    fontSize: 16,
   },
   searchInput: {
     flex: 1,

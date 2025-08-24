@@ -18,6 +18,7 @@ import { MapStorageService } from "../services/MapStorageService";
 import { useMapView } from "../contexts/MapViewContext";
 import { NavigationStep } from "../types/RouteTypes";
 import { useLocationService } from "@/services/LocationService";
+import UserLocationMarker from "./UserLocationMarker";
 import NavigationArrow from "./ArrowSVG";
 
 Mapbox.setAccessToken("");
@@ -119,6 +120,7 @@ export default function MapContainer({
     pitch,
     setPitch,
     setCameraConfig,
+    notifyMapReady,
   } = useMapView();
   const { heading: mapHeading } = useMapView();
 
@@ -143,51 +145,86 @@ export default function MapContainer({
   useEffect(() => {}, [heading, currentHeading, compassMode, mapBearing]);
 
   // Fonction utilitaire pour calculer la distance entre deux points
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const calculateDistance = (
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number
+  ) => {
     const R = 6371e3; // Rayon de la Terre en mètres
-    const φ1 = lat1 * Math.PI/180;
-    const φ2 = lat2 * Math.PI/180;
-    const Δφ = (lat2-lat1) * Math.PI/180;
-    const Δλ = (lon2-lon1) * Math.PI/180;
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
 
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
     return R * c; // Distance en mètres
   };
 
   // Calculate bearing (degrees) from point A to point B (lat/lon in degrees)
-  const calculateBearing = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const φ1 = lat1 * Math.PI / 180;
-    const φ2 = lat2 * Math.PI / 180;
-    const Δλ = (lon2 - lon1) * Math.PI / 180;
+  const calculateBearing = (
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number
+  ) => {
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
 
     const y = Math.sin(Δλ) * Math.cos(φ2);
-    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-    let θ = Math.atan2(y, x) * 180 / Math.PI;
+    const x =
+      Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    let θ = (Math.atan2(y, x) * 180) / Math.PI;
     if (θ < 0) θ += 360;
     return θ;
+  };
+
+  // Helpers to validate coordinates before rendering PointAnnotation
+  const isValidCoordArray = (c: any): c is [number, number] => {
+    return (
+      Array.isArray(c) &&
+      c.length >= 2 &&
+      typeof c[0] === "number" &&
+      typeof c[1] === "number" &&
+      isFinite(c[0]) &&
+      isFinite(c[1])
+    );
+  };
+
+  const isValidCoordObj = (
+    o: any
+  ): o is { latitude: number; longitude: number } => {
+    return (
+      o &&
+      typeof o.latitude === "number" &&
+      typeof o.longitude === "number" &&
+      isFinite(o.latitude) &&
+      isFinite(o.longitude)
+    );
   };
 
   // Fonction pour calculer le heading approprié pour la caméra
   const getCameraHeading = () => {
     // Si un override est fourni depuis le composant parent (App), l'utiliser en priorité
     const normalizeAngle = (angle: number) => ((angle % 360) + 360) % 360;
-    if (typeof mapHeadingOverride === 'number' && !isNaN(mapHeadingOverride)) {
+    if (typeof mapHeadingOverride === "number" && !isNaN(mapHeadingOverride)) {
       return normalizeAngle(mapHeadingOverride);
     }
     // Utiliser la même logique de mélange que pour la flèche, mais moins agressive
     const isOnRoute = routeDirection && routeDirection.isOnRoute;
-    
+
     // Facteurs de mélange pour la caméra (plus conservateurs que la flèche) :
     // - Navigation + sur route : 80% direction, 20% boussole (précision mais pas trop brusque)
-    // - Navigation + hors route : 50% direction, 50% boussole 
+    // - Navigation + hors route : 50% direction, 50% boussole
     // - Mode normal : 100% boussole (pas de rotation automatique)
-    
+
     let directionWeight = 0;
-    
+
     if (isNavigating && isOnRoute && compassMode === "heading") {
       directionWeight = 0.8; // Navigation précise mais smooth
     } else if (isNavigating && routeDirection && compassMode === "heading") {
@@ -200,7 +237,7 @@ export default function MapContainer({
       // Mode boussole standard
       if (compassMode === "heading") {
         // Preferer le heading défini par le contexte (setCameraConfig/updateMapHeading)
-        if (typeof mapHeading === 'number' && !isNaN(mapHeading)) {
+        if (typeof mapHeading === "number" && !isNaN(mapHeading)) {
           return mapHeading;
         }
 
@@ -212,18 +249,23 @@ export default function MapContainer({
 
     // Mélange direction + boussole pour la caméra
     const directionAngle = routeDirection?.bearing || 0;
-    const compassAngle = (typeof mapHeading === 'number' && !isNaN(mapHeading)) ? mapHeading : (heading !== 0 ? heading : currentHeading || 0);
-    
+    const compassAngle =
+      typeof mapHeading === "number" && !isNaN(mapHeading)
+        ? mapHeading
+        : heading !== 0
+        ? heading
+        : currentHeading || 0;
+
     // Normaliser et calculer le mélange
     const normDirectionAngle = normalizeAngle(directionAngle);
     const normCompassAngle = normalizeAngle(compassAngle);
-    
+
     let angleDiff = normDirectionAngle - normCompassAngle;
     if (angleDiff > 180) angleDiff -= 360;
     if (angleDiff < -180) angleDiff += 360;
-    
-    const finalAngle = normCompassAngle + (angleDiff * directionWeight);
-    
+
+    const finalAngle = normCompassAngle + angleDiff * directionWeight;
+
     return normalizeAngle(finalAngle);
   };
 
@@ -231,15 +273,15 @@ export default function MapContainer({
   const getArrowRotation = (): string => {
     // Déterminer l'intensité du mélange direction/boussole
     const isOnRoute = routeDirection && routeDirection.isOnRoute;
-    
+
     // Facteurs de mélange :
     // - Navigation + sur route : 100% direction de déplacement (précision maximale)
     // - Navigation + hors route : 70% direction, 30% boussole (guidage vers la route)
     // - Mode normal + direction disponible : 40% direction, 60% boussole (économie ressources)
     // - Mode normal sans direction : 100% boussole
-    
+
     let directionWeight = 0; // Poids de la direction de déplacement (0-1)
-    
+
     if (isNavigating && isOnRoute) {
       // Navigation précise : priorité totale à la direction
       directionWeight = 1.0;
@@ -265,22 +307,22 @@ export default function MapContainer({
 
     // Calculer l'angle final avec mélange
     let finalAngle = compassAngle;
-    
+
     if (directionWeight > 0 && routeDirection) {
       // Mélange : interpolation entre direction et boussole
       // Normaliser les angles pour éviter les problèmes de 360°/0°
       const normalizeAngle = (angle: number) => ((angle % 360) + 360) % 360;
-      
+
       const normDirectionAngle = normalizeAngle(directionAngle);
       const normCompassAngle = normalizeAngle(compassAngle);
-      
+
       // Calculer la différence angulaire pour choisir le chemin le plus court
       let angleDiff = normDirectionAngle - normCompassAngle;
       if (angleDiff > 180) angleDiff -= 360;
       if (angleDiff < -180) angleDiff += 360;
-      
+
       // Angle final mélangé
-      finalAngle = normCompassAngle + (angleDiff * directionWeight);
+      finalAngle = normCompassAngle + angleDiff * directionWeight;
       finalAngle = normalizeAngle(finalAngle);
     }
 
@@ -297,6 +339,12 @@ export default function MapContainer({
   // Handler pour quand la map est prête
   const handleMapReady = () => {
     setIsMapReady(true);
+    // Notifier le contexte que la Map native est prête pour vider la file d'attente
+    try {
+      if (notifyMapReady) notifyMapReady();
+    } catch (e) {
+      // Ignorer les erreurs ici - le flush est best-effort
+    }
   };
 
   // Charger la dernière position depuis AsyncStorage au montage
@@ -344,7 +392,10 @@ export default function MapContainer({
     const MIN_DISTANCE_THRESHOLD = 5; // 5 mètres minimum de déplacement
 
     // Vérifier si assez de temps s'est écoulé
-    if (lastCameraUpdateRef.current && (now - lastCameraUpdateRef.current.timestamp) < MIN_UPDATE_INTERVAL) {
+    if (
+      lastCameraUpdateRef.current &&
+      now - lastCameraUpdateRef.current.timestamp < MIN_UPDATE_INTERVAL
+    ) {
       return;
     }
 
@@ -356,7 +407,7 @@ export default function MapContainer({
         location.latitude,
         location.longitude
       );
-      
+
       if (distance < MIN_DISTANCE_THRESHOLD && !isNavigating) {
         return; // Pas assez de mouvement et pas en navigation
       }
@@ -444,29 +495,35 @@ export default function MapContainer({
   }
 
   // Créer les données GeoJSON pour la progression de la route
-  const completedRouteGeoJSON = isNavigating && completedRouteCoords.length > 1 ? {
-    type: "Feature" as const,
-    properties: {},
-    geometry: {
-      type: "LineString" as const,
-      coordinates: completedRouteCoords.map((coord) => [
-        coord.longitude,
-        coord.latitude,
-      ]),
-    },
-  } : null;
+  const completedRouteGeoJSON =
+    isNavigating && completedRouteCoords.length > 1
+      ? {
+          type: "Feature" as const,
+          properties: {},
+          geometry: {
+            type: "LineString" as const,
+            coordinates: completedRouteCoords.map((coord) => [
+              coord.longitude,
+              coord.latitude,
+            ]),
+          },
+        }
+      : null;
 
-  const remainingRouteGeoJSON = isNavigating && remainingRouteCoords.length > 1 ? {
-    type: "Feature" as const,
-    properties: {},
-    geometry: {
-      type: "LineString" as const,
-      coordinates: remainingRouteCoords.map((coord) => [
-        coord.longitude,
-        coord.latitude,
-      ]),
-    },
-  } : null;
+  const remainingRouteGeoJSON =
+    isNavigating && remainingRouteCoords.length > 1
+      ? {
+          type: "Feature" as const,
+          properties: {},
+          geometry: {
+            type: "LineString" as const,
+            coordinates: remainingRouteCoords.map((coord) => [
+              coord.longitude,
+              coord.latitude,
+            ]),
+          },
+        }
+      : null;
 
   // Créer les données GeoJSON pour les intersections (seulement virages serrés)
   const intersectionsGeoJSON = {
@@ -477,7 +534,9 @@ export default function MapContainer({
         turnIndex: index,
         angle: turn.angle,
         type: "sharp-turn",
-        instruction: `Virage ${turn.angle >= 135 ? "serré" : "important"} (${Math.round(turn.angle)}°)`,
+        instruction: `Virage ${
+          turn.angle >= 135 ? "serré" : "important"
+        } (${Math.round(turn.angle)}°)`,
       },
       geometry: {
         type: "Point" as const,
@@ -577,13 +636,18 @@ export default function MapContainer({
           )}
 
           {/* ==================== ROUTES (RENDU EN PREMIER - DESSOUS) ==================== */}
-          
+
           {/* Affichage de la route avec progression en navigation ou route normale */}
-          {isMapReady && isNavigating && (completedRouteGeoJSON || remainingRouteGeoJSON) ? (
+          {isMapReady &&
+          isNavigating &&
+          (completedRouteGeoJSON || remainingRouteGeoJSON) ? (
             <>
               {/* Segment de route déjà parcouru (en gris/vert) */}
               {completedRouteGeoJSON && (
-                <ShapeSource id={`completed-route-${currentTimestamp}`} shape={completedRouteGeoJSON}>
+                <ShapeSource
+                  id={`completed-route-${currentTimestamp}`}
+                  shape={completedRouteGeoJSON}
+                >
                   <LineLayer
                     id={`completed-route-layer-${currentTimestamp}`}
                     style={{
@@ -596,10 +660,13 @@ export default function MapContainer({
                   />
                 </ShapeSource>
               )}
-              
+
               {/* Segment de route restant (en bleu) */}
               {remainingRouteGeoJSON && (
-                <ShapeSource id={`remaining-route-${currentTimestamp}`} shape={remainingRouteGeoJSON}>
+                <ShapeSource
+                  id={`remaining-route-${currentTimestamp}`}
+                  shape={remainingRouteGeoJSON}
+                >
                   <LineLayer
                     id={`remaining-route-layer-${currentTimestamp}`}
                     style={{
@@ -614,7 +681,8 @@ export default function MapContainer({
             </>
           ) : (
             /* Route normale (quand pas en navigation ou pas de données de progression) */
-            isMapReady && routeCoords.length > 0 && (
+            isMapReady &&
+            routeCoords.length > 0 && (
               <ShapeSource id={routeSourceId} shape={routeGeoJSON}>
                 <LineLayer
                   id={`route-layer-${currentTimestamp}`}
@@ -647,7 +715,7 @@ export default function MapContainer({
           )}
 
           {/* ==================== MARQUEURS UTILISATEUR (RENDU AU-DESSUS) ==================== */}
-          
+
           {/* Marqueur de position utilisateur (ShapeSource + cercles d'accuracy) */}
           {isMapReady && location && (
             <>
@@ -691,79 +759,93 @@ export default function MapContainer({
             </>
           )}
 
-          {isMapReady && destination && (
+          {isMapReady && isValidCoordObj(destination) && (
             <PointAnnotation
               id="destination"
               coordinate={[destination.longitude, destination.latitude]}
             >
-              <View style={styles.destinationMarker}>
+              <View collapsable={false} style={styles.destinationMarker}>
                 <MaterialIcons name="place" size={30} color="#34C759" />
               </View>
             </PointAnnotation>
           )}
 
           {/* Point de location sélectionné */}
-          {isMapReady && showLocationPoint && selectedLocationCoordinate && (
-            <PointAnnotation
-              id="selected-location"
-              coordinate={[
-                selectedLocationCoordinate.longitude,
-                selectedLocationCoordinate.latitude,
-              ]}
-            >
-              <View style={styles.selectedLocationMarker}>
-                <MaterialIcons name="location-on" size={30} color="#007AFF" />
-              </View>
-            </PointAnnotation>
-          )}
+          {isMapReady &&
+            showLocationPoint &&
+            isValidCoordObj(selectedLocationCoordinate) && (
+              <PointAnnotation
+                id="selected-location"
+                coordinate={[
+                  selectedLocationCoordinate.longitude,
+                  selectedLocationCoordinate.latitude,
+                ]}
+              >
+                <View collapsable={false} style={styles.selectedLocationMarker}>
+                  <MaterialIcons name="location-on" size={30} color="#007AFF" />
+                </View>
+              </PointAnnotation>
+            )}
 
           {/* -------------------- USER ARROW (RENDER LAST TO BE ON TOP) -------------------- */}
-          {isMapReady && location && (
-            <PointAnnotation
-              id="user-location-arrow"
-              coordinate={[location.longitude, location.latitude]}
-              anchor={{ x: 0.5, y: 0.5 }}
-            >
-              <View
-                style={{
-                  width: 34,
-                  height: 34,
-                  justifyContent: "center",
-                  alignItems: "center",
-                  transform: [
-                    {
-                      rotate: getArrowRotation(),
-                    },
-                  ],
-                }}
+          {isMapReady &&
+            location &&
+            isFinite(location.longitude) &&
+            isFinite(location.latitude) && (
+              <PointAnnotation
+                id="user-location-arrow"
+                coordinate={[location.longitude, location.latitude]}
+                anchor={{ x: 0.5, y: 0.5 }}
               >
-                <NavigationArrow size={24} color="white" />
-              </View>
-            </PointAnnotation>
-          )}
+                {/* Inline simple marker to avoid PointAnnotation child tagging issues */}
+                <View
+                  collapsable={false}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {isNavigating ? (
+                    <View
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 17,
+                        backgroundColor: '#007AFF',
+                        borderWidth: 3,
+                        borderColor: 'white',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <View
+                        style={{ transform: [{ rotate: getArrowRotation() }] }}
+                      >
+                        <NavigationArrow size={20} color="white" />
+                      </View>
+                    </View>
+                  ) : (
+                    <View
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 12,
+                        borderWidth: 3,
+                        borderColor: '#007AFF',
+                        backgroundColor: 'transparent',
+                      }}
+                    />
+                  )}
+                </View>
+              </PointAnnotation>
+            )}
 
           {/* Parking sélectionné */}
           {isMapReady &&
             selectedParking &&
-            selectedParking.coordinate &&
-            (() => {
-              const lat = selectedParking.coordinate.latitude;
-              const lon = selectedParking.coordinate.longitude;
-
-              const isValid =
-                typeof lat === "number" &&
-                typeof lon === "number" &&
-                !isNaN(lat) &&
-                !isNaN(lon) &&
-                isFinite(lat) &&
-                isFinite(lon) &&
-                lat >= -90 &&
-                lat <= 90 &&
-                lon >= -180 &&
-                lon <= 180;
-
-              return isValid;
-            })() && (
+            isValidCoordObj(selectedParking.coordinate) && (
               <PointAnnotation
                 id="selected-parking"
                 coordinate={[
@@ -771,7 +853,7 @@ export default function MapContainer({
                   selectedParking.coordinate.latitude,
                 ]}
               >
-                <View style={styles.parkingMarker}>
+                <View collapsable={false} style={styles.parkingMarker}>
                   <MaterialIcons
                     name="local-parking"
                     size={28}
@@ -806,6 +888,21 @@ export default function MapContainer({
                   </View>
                 </PointAnnotation>
               ))}
+
+          {/* Marqueur dédié pour le POI sélectionné (surdimensionné et visible au-dessus) */}
+          {isMapReady &&
+            selectedPOI &&
+            selectedPOI.lat != null &&
+            selectedPOI.lon != null && (
+              <PointAnnotation
+                id="selected-poi"
+                coordinate={[selectedPOI.lon, selectedPOI.lat]}
+              >
+                <View collapsable={false} style={styles.selectedPoiMarker}>
+                  <MaterialIcons name="place" size={36} color="#FF3B30" />
+                </View>
+              </PointAnnotation>
+            )}
 
           {/* Intersections et étapes de navigation */}
           {isMapReady && intersectionsGeoJSON.features.length > 0 && (
@@ -860,18 +957,31 @@ export default function MapContainer({
           )}
 
           {/* Affichage des instructions aux intersections et virages */}
-          {isNavigating &&
+          {isMapReady &&
+            isNavigating &&
             navigationSteps.map((step, index) => {
               // Ne pas rendre les étapes déjà effectuées
               if (index < currentStepIndex) return null;
 
               // Calculer l'orientation de la flèche : vers la prochaine étape si disponible
               const coord = step.coordinates as [number, number]; // [lon, lat]
-              const nextCoord = navigationSteps[index + 1]?.coordinates || (destination ? [destination.longitude, destination.latitude] : null);
+              if (!isValidCoordArray(coord)) return null;
+              const nextCoord =
+                navigationSteps[index + 1]?.coordinates ||
+                (destination
+                  ? [destination.longitude, destination.latitude]
+                  : null);
               let bearing = 0;
               if (nextCoord) {
                 // calculateBearing(lat1, lon1, lat2, lon2)
-                bearing = calculateBearing(coord[1], coord[0], nextCoord[1], nextCoord[0]);
+                if (isValidCoordArray(nextCoord)) {
+                  bearing = calculateBearing(
+                    coord[1],
+                    coord[0],
+                    nextCoord[1],
+                    nextCoord[0]
+                  );
+                }
               }
 
               return (
@@ -886,6 +996,7 @@ export default function MapContainer({
                   }}
                 >
                   <View
+                    collapsable={false}
                     style={[
                       styles.navigationStepWrapper,
                       index === currentStepIndex && styles.currentStepWrapper,
@@ -893,6 +1004,7 @@ export default function MapContainer({
                   >
                     {/* Arrow marker rotated to follow the path */}
                     <View
+                      collapsable={false}
                       style={{
                         width: 28,
                         height: 28,
@@ -906,14 +1018,19 @@ export default function MapContainer({
                           width: 24,
                           height: 24,
                           borderRadius: 12,
-                          backgroundColor: index === currentStepIndex ? "#FF3B30" : "#007AFF",
+                          backgroundColor:
+                            index === currentStepIndex ? "#FF3B30" : "#007AFF",
                           justifyContent: "center",
                           alignItems: "center",
                           borderWidth: 2,
                           borderColor: "#FFFFFF",
                         }}
                       >
-                        <MaterialIcons name="navigation" size={14} color="white" />
+                        <MaterialIcons
+                          name="navigation"
+                          size={14}
+                          color="white"
+                        />
                       </View>
                     </View>
 
@@ -931,22 +1048,27 @@ export default function MapContainer({
             })}
 
           {/* Affichage des virages serrés sur la route */}
-          {!isNavigating &&
+          {isMapReady &&
+            !isNavigating &&
             routeCoords.length > 0 &&
-            detectSharpTurnsInRoute(routeCoords).map((turn, index) => (
-              <PointAnnotation
-                key={`turn-${index}`}
-                id={`sharp-turn-${index}`}
-                coordinate={[
-                  turn.coordinate.longitude,
-                  turn.coordinate.latitude,
-                ]}
-              >
-                <View style={styles.sharpTurnMarker}>
-                  <MaterialIcons name="warning" size={12} color="white" />
-                </View>
-              </PointAnnotation>
-            ))}
+            detectSharpTurnsInRoute(routeCoords).map((turn, index) => {
+              const coordArr = [
+                turn.coordinate.longitude,
+                turn.coordinate.latitude,
+              ];
+              if (!isValidCoordArray(coordArr)) return null;
+              return (
+                <PointAnnotation
+                  key={`turn-${index}`}
+                  id={`sharp-turn-${index}`}
+                  coordinate={coordArr}
+                >
+                  <View collapsable={false} style={styles.sharpTurnMarker}>
+                    <MaterialIcons name="warning" size={12} color="white" />
+                  </View>
+                </PointAnnotation>
+              );
+            })}
         </MapView>
       )}
     </View>
@@ -1082,6 +1204,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 40,
     height: 40,
+  },
+  selectedPoiMarker: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(255, 59, 48, 0.08)",
+    borderWidth: 2,
+    borderColor: "#FF3B30",
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
   },
   navigationStepMarker: {
     width: 32,

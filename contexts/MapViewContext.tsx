@@ -35,6 +35,8 @@ export interface MapViewContextType {
   fitToCoordinates: (coordinates: [number, number][], padding?: number, duration?: number, viewportPadding?: ViewportPadding) => void;
   setViewportPadding: (padding: ViewportPadding) => void;
   currentViewportPadding: ViewportPadding;
+  // Notifier que la Map native est prête afin de vider les configs en attente
+  notifyMapReady?: () => void;
 }
 
 const MapViewContext = createContext<MapViewContextType | undefined>(undefined);
@@ -74,8 +76,15 @@ export function MapViewProvider({
   // Cleanup effect pour éviter les ViewTagResolver errors
   React.useEffect(() => {
     return () => {
-      if (mapRef.current) {
-}
+      // During unmount, ensure the ref is cleared so native views are not referenced
+      try {
+        if (mapRef && mapRef.current) {
+          // @ts-ignore - ensure we don't hold onto native view tag
+          mapRef.current = null;
+        }
+      } catch (e) {
+        // ignore
+      }
     };
   }, []);
 
@@ -125,17 +134,21 @@ return;
     duration: number = 1000,
     pitch ?: number
   ) => {
-    if (!mapRef.current) {
-      console.warn('⚠️ MapView ref is not available for animation');
-      return;
-    }
-
-    setCameraConfig({
+    const config: CameraConfig = {
       centerCoordinate: [longitude, latitude],
       zoomLevel: zoom,
       animationDuration: duration,
-      pitch: pitch !== undefined ? pitch : undefined
-    });
+      pitch: pitch !== undefined ? pitch : undefined,
+    };
+
+    if (!mapRef.current) {
+      // Queue the request until the native MapView is ready to avoid ViewTagResolver errors
+      pendingCameraConfigs.current.push({ config, forced: false });
+      console.warn('⚠️ MapView not ready yet - queuing camera request');
+      return;
+    }
+
+    setCameraConfig(config);
   };
 
   // Version verrouillée de animateToLocation pour les animations critiques (parking, etc.)
@@ -146,25 +159,45 @@ return;
     duration: number = 1000,
     pitch?: number
   ) => {
-    if (!mapRef.current) {
-      console.warn('⚠️ MapView ref is not available for locked animation');
-      return;
-    }
-// Verrouiller les animations automatiques
-    setIsAnimationLocked(true);
-
-    // Forcer la configuration de la caméra même si les animations sont verrouillées
-    setCameraConfig({
+    const config: CameraConfig = {
       centerCoordinate: [longitude, latitude],
       zoomLevel: zoom,
       animationDuration: duration,
-      pitch: pitch !== undefined ? pitch : undefined
-    }, true); // forced = true
+      pitch: pitch !== undefined ? pitch : undefined,
+    };
+
+    if (!mapRef.current) {
+      pendingCameraConfigs.current.push({ config, forced: true });
+      console.warn('⚠️ MapView not ready yet - queuing locked camera request');
+      return;
+    }
+
+    // Verrouiller les animations automatiques uniquement lorsque la map est prête
+    setIsAnimationLocked(true);
+
+    // Forcer la configuration de la caméra même si les animations sont verrouillées
+    setCameraConfig(config, true);
 
     // Déverrouiller après la fin de l'animation
     setTimeout(() => {
       setIsAnimationLocked(false);
-}, duration + 1000); // Ajouter 1 seconde de marge de sécurité pour éviter les conflits
+    }, duration + 1000); // Ajouter 1 seconde de marge de sécurité
+  };
+
+  // Queue pour stocker les demandes de caméra avant que la MapView native soit prête
+  const pendingCameraConfigs = React.useRef<
+    Array<{ config: CameraConfig; forced?: boolean; controllerId?: string }>
+  >([]);
+
+  // Fonction pour vider la file d'attente lorsque la map native est prête
+  const notifyMapReady = () => {
+    if (!pendingCameraConfigs.current || pendingCameraConfigs.current.length === 0) return;
+    pendingCameraConfigs.current.forEach((entry, idx) => {
+      setTimeout(() => {
+        setCameraConfig(entry.config, !!entry.forced, entry.controllerId);
+      }, idx * 150);
+    });
+    pendingCameraConfigs.current = [];
   };
 
   // Fonctions pour gérer le contrôle exclusif des drawers

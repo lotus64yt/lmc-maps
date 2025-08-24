@@ -336,7 +336,10 @@ export function useMapControls() {
     zoomLevel: number = 15,
     pitch?: number
   ) => {
-    animateToLocation(
+    // Use the locked variant to ensure the camera change is honored even when
+    // drawers or animation locks are active. This keeps behaviour consistent
+    // when callers expect the map to move after a user action.
+    animateToLocationLocked(
       coordinate.latitude,
       coordinate.longitude,
       zoomLevel,

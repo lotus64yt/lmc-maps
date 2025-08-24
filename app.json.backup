@@ -1,56 +1,56 @@
 {
-  "expo": {
-    "plugins": [
-      [
-        "@rnmapbox/maps",
-        {
-          "RNMapboxMapsImpl": "mapbox",
-          "RNMapboxMapsDownloadToken": ""
+    "expo": {
+        "plugins": [
+            [
+                "@rnmapbox/maps",
+                {
+                    "RNMapboxMapsImpl": "mapbox",
+                    "RNMapboxMapsDownloadToken": ""
+                }
+            ],
+            [
+                "expo-notifications",
+                {
+                    "icon": "./assets/favicon.png",
+                    "color": "#007AFF"
+                }
+            ]
+        ],
+        "name": "LMC Maps Alpha V.02",
+        "slug": "lmc-maps",
+        "version": "1.0.0",
+        "orientation": "portrait",
+        "icon": "./assets/favicon.png",
+        "userInterfaceStyle": "light",
+        "newArchEnabled": true,
+        "splash": {
+            "image": "./assets/favicon.png",
+            "resizeMode": "contain",
+            "backgroundColor": "#ffffff"
+        },
+        "ios": {
+            "supportsTablet": false
+        },
+        "android": {
+            "adaptiveIcon": {
+                "foregroundImage": "./assets/favicon.png",
+                "backgroundColor": "#ffffff"
+            },
+            "package": "com.lotus64.lmcmapsv02",
+            "permissions": [
+                "android.permission.ACCESS_FINE_LOCATION",
+                "android.permission.ACCESS_COARSE_LOCATION",
+                "android.permission.FOREGROUND_SERVICE",
+                "android.permission.WAKE_LOCK"
+            ]
+        },
+        "web": {
+            "favicon": "./assets/favicon.png"
+        },
+        "extra": {
+            "eas": {
+                "projectId": "bb0a305c-d0b2-4ce1-980f-f886918ee228"
+            }
         }
-      ],
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/favicon.png",
-          "color": "#007AFF"
-        }
-      ]
-    ],
-    "name": "LMC Maps",
-    "slug": "lmc-maps",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/favicon.png",
-    "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/favicon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
-    "ios": {
-      "supportsTablet": false
-    },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/favicon.png",
-        "backgroundColor": "#ffffff"
-      },
-      "package": "com.lotus64.lmcmaps",
-      "permissions": [
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.WAKE_LOCK"
-      ]
-    },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    },
-    "extra": {
-      "eas": {
-        "projectId": "bb0a305c-d0b2-4ce1-980f-f886918ee228"
-      }
     }
-  }
 }

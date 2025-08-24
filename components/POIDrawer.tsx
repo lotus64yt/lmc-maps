@@ -31,9 +31,8 @@ interface POIDrawerProps {
   onCameraMove?: (coordinate: { latitude: number; longitude: number } | null, offset?: { x: number; y: number }) => void; // Nouveau prop pour gérer la caméra
 }
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DRAWER_MIN_HEIGHT = 400;
-const DRAWER_MAX_HEIGHT = SCREEN_HEIGHT * 10;
+const DRAWER_MAX_HEIGHT = 400;
 
 // Composant ScrollView avec support de ref
 const CustomScrollView = ScrollView as any;
@@ -72,6 +71,12 @@ export default function POIDrawer({
   const notifiedPOIsRef = useRef<OverpassPOI[]>([]);
   const userManualSelectionRef = useRef(false); // Flag pour savoir si l'utilisateur a fait une sélection manuelle
 
+  // Accordion state for categories (collapsed by default)
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
+  const animatedHeightsRef = useRef<Record<string, Animated.Value>>({});
+  // Separate animated value for chevron rotation (0 -> collapsed, 1 -> expanded)
+  const animatedRotationsRef = useRef<Record<string, Animated.Value>>({});
+
   const transportModes = [
     { id: 'walking', icon: 'directions-walk', label: 'Marche' },
     { id: 'bicycling', icon: 'directions-bike', label: 'Vélo' },
@@ -108,15 +113,58 @@ export default function POIDrawer({
 
   // Helper pour calculer l'offset de la caméra basé sur la hauteur du drawer
   const getCameraOffset = React.useCallback(() => {
-    const drawerHeightPercent = isExpanded ? 0.7 : 0.4;
-    const offsetY = SCREEN_HEIGHT * drawerHeightPercent * 0.3; // 30% de la hauteur du drawer
+    // Retourner un offset en pixels correspondant au padding appliqué au viewport
+    // dans `App.tsx` (setDrawerPadding(400) pour le POIDrawer).
+    // Le drawer a une hauteur fixe de 400px, donc utiliser cette valeur.
+    const offsetY = DRAWER_MIN_HEIGHT; // 400
     return { x: 0, y: offsetY };
-  }, [isExpanded]);
+  }, []);
 
   // Liste plate des POI pour l'affichage horizontal
   const flatPOIs = React.useMemo(() => {
     return Object.values(groupedPOIs).flat();
   }, [groupedPOIs]);
+
+  // Initialize animated values for each category when groupedPOIs changes
+  React.useEffect(() => {
+    Object.keys(groupedPOIs).forEach((key) => {
+      if (!animatedHeightsRef.current[key]) {
+        animatedHeightsRef.current[key] = new Animated.Value(0);
+      }
+      if (!animatedRotationsRef.current[key]) {
+        animatedRotationsRef.current[key] = new Animated.Value(0);
+      }
+      // ensure category exists in expandedCategories map (default false)
+      setExpandedCategories((prev) => (prev.hasOwnProperty(key) ? prev : { ...prev, [key]: false }));
+    });
+  }, [groupedPOIs]);
+
+  const toggleCategory = (type: string) => {
+    const isExpanded = !!expandedCategories[type];
+    const poisOfType = groupedPOIs[type] || [];
+    const rows = Math.max(1, Math.ceil(poisOfType.length / 2));
+    const cardHeight = 112; // must match visual card height used in grid
+    const contentHeight = rows * cardHeight + 16; // add small padding
+
+    const heightAnim = animatedHeightsRef.current[type];
+    const rotateAnim = animatedRotationsRef.current[type];
+    if (!heightAnim || !rotateAnim) return;
+
+    Animated.parallel([
+      Animated.timing(heightAnim, {
+        toValue: isExpanded ? 0 : contentHeight,
+        duration: 250,
+        useNativeDriver: false,
+      }),
+      Animated.timing(rotateAnim, {
+        toValue: isExpanded ? 0 : 1,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    setExpandedCategories((prev) => ({ ...prev, [type]: !isExpanded }));
+  };
 
   // Rechercher les POI (une seule fois avec un rayon large)
   const searchPOIs = React.useCallback(async () => {
@@ -141,15 +189,9 @@ export default function POIDrawer({
       // Sélectionner automatiquement le premier POI trouvé
       const filteredResults = results.filter(poi => (poi.distance || 0) <= radius);
       if (filteredResults.length > 0) {
-        // debugLog.poi(`Auto-selecting first POI from search: ${filteredResults[0].tags.name}`);
+        // Auto-select first POI and notify parent; parent will animate the camera.
         setSelectedPOI(filteredResults[0]);
         onSelectPOI(filteredResults[0]);
-        if (onCameraMove) {
-          onCameraMove(
-            { latitude: filteredResults[0].lat, longitude: filteredResults[0].lon },
-            getCameraOffset()
-          );
-        }
       }
       
       // Notifier le parent
@@ -181,17 +223,11 @@ export default function POIDrawer({
       // Si le POI sélectionné n'est plus dans le rayon, sélectionner le premier disponible
       if (selectedPOI && filteredResults.length > 0) {
         const isSelectedInRange = filteredResults.some(poi => poi.id === selectedPOI.id);
-        if (!isSelectedInRange && !userManualSelectionRef.current) {
+  if (!isSelectedInRange && !userManualSelectionRef.current) {
           // Seulement remplacer si ce n'était pas une sélection manuelle
           // debugLog.poi(`Replacing out-of-range POI: ${selectedPOI.tags.name} -> ${filteredResults[0].tags.name}`);
           setSelectedPOI(filteredResults[0]);
           onSelectPOI(filteredResults[0]);
-          if (onCameraMove) {
-            onCameraMove(
-              { latitude: filteredResults[0].lat, longitude: filteredResults[0].lon },
-              getCameraOffset()
-            );
-          }
         } else if (!isSelectedInRange && userManualSelectionRef.current) {
           // Si c'était une sélection manuelle et qu'elle n'est plus dans le rayon, garder la sélection
           // // debugLog.info(`useEffect radius - Manual selection out of range, keeping selection: ${selectedPOI.tags.name}`);
@@ -201,20 +237,12 @@ export default function POIDrawer({
         // // debugLog.info(`useEffect radius - Auto-selecting first POI: ${filteredResults[0].tags.name}`);
         setSelectedPOI(filteredResults[0]);
         onSelectPOI(filteredResults[0]);
-        if (onCameraMove) {
-          onCameraMove(
-            { latitude: filteredResults[0].lat, longitude: filteredResults[0].lon },
-            getCameraOffset()
-          );
-        }
+        // Parent will reposition camera on onSelectPOI
       } else if (filteredResults.length === 0) {
         // Aucun POI dans le rayon
-        // // debugLog.info(`useEffect radius - No POI in range, moving to user location`);
         setSelectedPOI(null);
         userManualSelectionRef.current = false; // Reset car aucun POI disponible
-        if (onCameraMove && lastUserLocationRef.current) {
-          onCameraMove(lastUserLocationRef.current);
-        }
+        // Parent may choose to recenter if desired via onPOIsFound / selection state
       }
     }
   }, [radius]); // Seulement dépendre du rayon
@@ -241,15 +269,9 @@ export default function POIDrawer({
         // Sélectionner le premier POI
         const filteredResults = preloadedPois.filter(poi => (poi.distance || 0) <= radius);
         if (filteredResults.length > 0) {
-          // // debugLog.info(`useEffect preloaded - Auto-selecting first POI: ${filteredResults[0].tags.name}`);
+          // Auto-select first POI from preloaded list and notify parent for camera animation
           setSelectedPOI(filteredResults[0]);
           onSelectPOI(filteredResults[0]);
-          if (onCameraMove) {
-            onCameraMove(
-              { latitude: filteredResults[0].lat, longitude: filteredResults[0].lon },
-              getCameraOffset()
-            );
-          }
         }
         
         if (onPOIsFound) {
@@ -292,24 +314,13 @@ export default function POIDrawer({
 
   // Effet pour gérer la caméra quand le drawer s'ouvre (une seule fois)
   React.useEffect(() => {
-    if (visible && !selectedPOI && onCameraMove && lastUserLocationRef.current) {
-      // Si aucun POI sélectionné quand le drawer s'ouvre, centrer sur l'utilisateur
-      onCameraMove(lastUserLocationRef.current);
-    }
+    // No automatic camera movement here; parent (App) controls camera when needed.
   }, [visible]); // Retirer les autres dépendances pour éviter les re-renders
 
   // Effet pour réajuster la caméra quand le drawer change d'état d'expansion
   React.useEffect(() => {
-    if (visible && selectedPOI && onCameraMove) {
-      // Réajuster la position de la caméra quand le drawer change de taille
-      setTimeout(() => {
-        onCameraMove(
-          { latitude: selectedPOI.lat, longitude: selectedPOI.lon },
-          getCameraOffset()
-        );
-      }, 300); // Délai pour laisser l'animation du drawer se terminer
-    }
-  }, [isExpanded, selectedPOI, visible, onCameraMove, getCameraOffset]);
+    // When expansion changes, parent can react to selection changes. Do not trigger camera moves here.
+  }, [isExpanded, selectedPOI, visible, getCameraOffset]);
 
   // Animation du spinner de chargement
   React.useEffect(() => {
@@ -377,19 +388,9 @@ export default function POIDrawer({
         useNativeDriver: true,
       }).start();
     } else {
-      // Sélectionner le nouveau POI
-      setSelectedPOI(poi);
-      onSelectPOI(poi);
-      
-      // TOUJOURS déplacer la caméra vers le POI sélectionné avec offset pour le drawer
-      if (onCameraMove) {
-        // // debugLog.info(`handlePOISelect - Moving camera to POI: ${OverpassService.formatPOIName(poi)} at coordinates:`,
-        //   { latitude: poi.lat, longitude: poi.lon });
-        onCameraMove(
-          { latitude: poi.lat, longitude: poi.lon }, 
-          getCameraOffset()
-        );
-      }
+  // Sélectionner le nouveau POI et notifier le parent pour qu'il anime la caméra
+  setSelectedPOI(poi);
+  onSelectPOI(poi);
       
       // Animer le bouton pour l'afficher
       Animated.timing(buttonOpacity, {
@@ -522,38 +523,75 @@ export default function POIDrawer({
                 contentContainerStyle={styles.poisGridContent}
               >
                 <View style={styles.poisGrid}>
-                  {pois.map((poi, index) => (
-                    <TouchableOpacity
-                      key={poi.id}
-                      style={[
-                        styles.poiGridCard,
-                        selectedPOI?.id === poi.id && styles.selectedPoiGridCard,
-                      ]}
-                      onPress={() => handlePOISelect(poi, index)}
-                    >
-                      <Text style={styles.poiName} numberOfLines={1}>
-                        {OverpassService.formatPOIName(poi)}
-                      </Text>
-                      <Text style={styles.poiAddress} numberOfLines={2}>
-                        {OverpassService.formatPOIAddress(poi) || 'Adresse non disponible'}
-                      </Text>
-                      <Text style={styles.poiDistance}>
-                        {formatDistance(poi.distance || 0)}
-                      </Text>
-                      
-                      {amenityType === '*' && (
-                        <Text style={styles.poiType} numberOfLines={1}>
-                          {poi.tags.amenity}
-                        </Text>
+                      {amenityType === '*' ? (
+                        // Render categories collapsed by default, expandable on press
+                        Object.entries(groupedPOIs).map(([type, poisOfType]) => {
+                          const anim = animatedHeightsRef.current[type] || new Animated.Value(0);
+                          const rotateAnim = animatedRotationsRef.current[type] || new Animated.Value(0);
+                          return (
+                            <View key={type} style={styles.categoryBlock}>
+                              <TouchableOpacity onPress={() => toggleCategory(type)} style={styles.categoryHeader}>
+                                <Text style={styles.categoryTitle}>{type} ({poisOfType.length})</Text>
+                                <Animated.View style={{ transform: [{ rotate: rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
+                                  <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
+                                </Animated.View>
+                              </TouchableOpacity>
+
+                              <Animated.View style={[styles.categoryContent, { height: anim, overflow: 'hidden' }]}>
+                                <View style={styles.poisGridRow}>
+                                  {poisOfType.map((poi, idx) => (
+                                    <TouchableOpacity
+                                      key={poi.id}
+                                      style={[
+                                        styles.poiGridCard,
+                                        selectedPOI?.id === poi.id && styles.selectedPoiGridCard,
+                                      ]}
+                                      onPress={() => handlePOISelect(poi, idx)}
+                                    >
+                                      <Text style={styles.poiName} numberOfLines={1}>
+                                        {OverpassService.formatPOIName(poi)}
+                                      </Text>
+                                      <Text style={styles.poiAddress} numberOfLines={2}>
+                                        {""}
+                                      </Text>
+                                      <Text style={styles.poiDistance}>
+                                        {formatDistance(poi.distance || 0)}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  ))}
+                                </View>
+                              </Animated.View>
+                            </View>
+                          );
+                        })
+                      ) : (
+                        pois.map((poi, index) => (
+                          <TouchableOpacity
+                            key={poi.id}
+                            style={[
+                              styles.poiGridCard,
+                              selectedPOI?.id === poi.id && styles.selectedPoiGridCard,
+                            ]}
+                            onPress={() => handlePOISelect(poi, index)}
+                          >
+                            <Text style={styles.poiName} numberOfLines={1}>
+                              {OverpassService.formatPOIName(poi)}
+                            </Text>
+                            <Text style={styles.poiAddress} numberOfLines={2}>
+                              {""}
+                            </Text>
+                            <Text style={styles.poiDistance}>
+                              {formatDistance(poi.distance || 0)}
+                            </Text>
+                        
+                            {poi.tags.opening_hours && (
+                              <Text style={styles.poiHours} numberOfLines={1}>
+                                {poi.tags.opening_hours}
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+                        ))
                       )}
-                      
-                      {poi.tags.opening_hours && (
-                        <Text style={styles.poiHours} numberOfLines={1}>
-                          {poi.tags.opening_hours}
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-                  ))}
                 </View>
               </ScrollView>
             )}
@@ -736,6 +774,35 @@ const styles = StyleSheet.create({
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
+  },
+  categoryBlock: {
+    width: '100%',
+    marginBottom: 8,
+  },
+  categoryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  categoryTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    textTransform: 'capitalize',
+  },
+  categoryContent: {
+    paddingTop: 8,
+    paddingBottom: 8,
+    paddingHorizontal: 0,
+  },
+  poisGridRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
   },
   dragHandle: {
     alignItems: 'center',

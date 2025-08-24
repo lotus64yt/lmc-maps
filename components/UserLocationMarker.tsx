@@ -1,6 +1,5 @@
 import React from "react";
 import { Animated, View } from "react-native";
-import { Marker } from "react-native-maps";
 import * as Location from "expo-location";
 import ArrowSVG from "./ArrowSVG";
 
@@ -87,27 +86,63 @@ export default function UserLocationMarker({
     }
   };
 
-  return (
-    <Marker
-      coordinate={{
-        latitude: location.latitude,
-        longitude: location.longitude,
+  // Render only the view contents; the parent (MapContainer) should wrap this
+  // component into a Mapbox `PointAnnotation` so it is visible on the map.
+  return isNavigating ? (
+    // Blue background ring with rotating arrow on top
+    <View
+      style={{
+        width: 40,
+        height: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
       }}
-      anchor={{ x: 0.5, y: 0.5 }}
     >
-      <Animated.View
+      <View
         style={{
-          width: 40,
-          height: 40,
-          transform: [
-            {
-              rotate: getRotationTransform(),
-            },
-          ],
+          width: 34,
+          height: 34,
+          borderRadius: 17,
+          backgroundColor: '#007AFF',
+          borderWidth: 3,
+          borderColor: 'white',
+          alignItems: 'center',
+          justifyContent: 'center',
         }}
       >
-        <ArrowSVG width={40} height={40} color="#007AFF" />
-      </Animated.View>
-    </Marker>
+        <Animated.View
+          style={{
+            transform: [
+              {
+                rotate: getRotationTransform(),
+              },
+            ],
+          }}
+        >
+          <ArrowSVG width={20} height={20} color="white" />
+        </Animated.View>
+      </View>
+    </View>
+  ) : (
+    // Empty ring when not navigating (no inner dot)
+    <View
+      style={{
+        width: 40,
+        height: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <View
+        style={{
+          width: 24,
+          height: 24,
+          borderRadius: 12,
+          borderWidth: 3,
+          borderColor: '#007AFF',
+          backgroundColor: 'transparent',
+        }}
+      />
+    </View>
   );
 }
