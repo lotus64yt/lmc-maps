@@ -42,6 +42,19 @@ export function useRouteService(): RouteService {
   const [isCalculating, setIsCalculating] = useState<boolean>(false);
   const [isOsrmAvailable, setIsOsrmAvailable] = useState<boolean>(true);
   const [lastOsrmCheck, setLastOsrmCheck] = useState<number | undefined>(undefined);
+  // Routing hosts: primary OSRM and a free fallback (no API key required)
+  const ROUTING_HOSTS = [
+  'https://router.project-osrm.org',
+  'https://api.openrouteservice.org'
+  ];
+  const [routingHost, setRoutingHost] = useState<string>(ROUTING_HOSTS[0]);
+  // Optional OpenRouteService API key (set globally or via environment)
+  const ORS_API_KEY: string | undefined =
+    (global as any)?.ORS_API_KEY ||
+    (global as any)?.OPENROUTESERVICE_API_KEY ||
+    (typeof process !== 'undefined' ? (process.env?.OPENROUTESERVICE_API_KEY as string | undefined) || (process.env?.ORS_API_KEY as string | undefined) : undefined);
+
+  const isOpenRouteService = (host: string) => host.includes('openrouteservice.org');
   
   // Nouveaux états pour le tracé hybride
   const [directLineCoords, setDirectLineCoords] = useState<Coordinate[]>([]);
@@ -53,26 +66,54 @@ export function useRouteService(): RouteService {
     location: Coordinate,
     mode: string = 'driving'
   ): Promise<Coordinate | null> => {
-  // Ensure OSRM is reachable before calling
-  const ok = await checkOsrmAvailable();
-  if (!ok) return null;
     try {
       const osrmMode = mode === 'bicycling' ? 'bike' : mode;
-      
-      // Utiliser l'API "nearest" d'OSRM pour trouver le point le plus proche sur le réseau routier
-      const url = `https://router.project-osrm.org/nearest/v1/${osrmMode}/${location.longitude},${location.latitude}?number=1`;
-      
-      const response = await fetch(url);
-      const data = await response.json();
-      
-      if (data.waypoints && data.waypoints.length > 0) {
-        const nearest = data.waypoints[0];
-        return {
-          latitude: nearest.location[1],
-          longitude: nearest.location[0]
-        };
+
+      // Try each routing host in order until one returns a nearest point
+      for (const host of ROUTING_HOSTS) {
+        try {
+          if (isOpenRouteService(host)) {
+            const url = `${host}/v2/nearest?point=${location.latitude},${location.longitude}`;
+            console.log('ORS nearest url', url);
+            const headers: Record<string,string> = {};
+            if (ORS_API_KEY) headers['Authorization'] = ORS_API_KEY;
+            const response = await fetch(url, { headers });
+            if (!response.ok) {
+              // try next host
+              continue;
+            }
+            const data = await response.json();
+            if (data && data.features && data.features.length > 0) {
+              setIsOsrmAvailable(true);
+              setLastOsrmCheck(Date.now());
+              setRoutingHost(host);
+              const coords = data.features[0].geometry.coordinates;
+              return { latitude: coords[1], longitude: coords[0] };
+            }
+          } else {
+            const url = `${host}/nearest/v1/${osrmMode}/${location.longitude},${location.latitude}?number=1`;
+            console.log(url);
+            const response = await fetch(url);
+            if (!response.ok) continue;
+            const data = await response.json();
+            if (data.waypoints && data.waypoints.length > 0) {
+              setIsOsrmAvailable(true);
+              setLastOsrmCheck(Date.now());
+              setRoutingHost(host);
+              const nearest = data.waypoints[0];
+              return {
+                latitude: nearest.location[1],
+                longitude: nearest.location[0]
+              };
+            }
+          }
+        } catch (e) {
+          // ignore and try next host
+          console.warn(`Nearest point failed on ${host}:`, e?.message || e);
+          continue;
+        }
       }
-      
+
       return null;
     } catch (error) {
       console.error("Erreur lors de la recherche du point le plus proche:", error);
@@ -80,24 +121,45 @@ export function useRouteService(): RouteService {
     }
   };
 
-  // Check OSRM availability with a lightweight request and short timeout
-  const OSRM_HEALTH_CHECK_URL = `https://router.project-osrm.org/route/v1/driving/2.3522,48.8566;2.3522,48.8566?overview=false`;
-
+  // Check routing provider availability by probing known hosts in order.
   const checkOsrmAvailable = async (timeoutMs = 4000): Promise<boolean> => {
-    try {
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), timeoutMs);
-      const res = await fetch(OSRM_HEALTH_CHECK_URL, { method: 'GET', signal: controller.signal });
-      clearTimeout(id);
-      const ok = res && res.ok;
-      setIsOsrmAvailable(ok);
-      setLastOsrmCheck(Date.now());
-      return ok;
-    } catch (e) {
+    const hostsToCheck = ROUTING_HOSTS
+    if (hostsToCheck.length === 0) {
+      console.warn('No routing hosts available (ORS present but ORS_API_KEY missing)');
       setIsOsrmAvailable(false);
       setLastOsrmCheck(Date.now());
       return false;
     }
+    for (const host of hostsToCheck) {
+      console.log(`Checking OSRM availability for ${host}`);
+      try {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeoutMs);
+        const healthUrl = host.includes("project-osrm") ? `${host}/route/v1/driving/2.3522,48.8566;2.3522,48.8566?overview=false` : `${host}/v2/directions/driving-car?start=2.3522,48.8566&end=2.3522,48.8566`;
+        let headers: Record<string, string> = {};
+  // health-check: add Authorization header for ORS only when key available
+  if (isOpenRouteService(host) && ORS_API_KEY) {
+          headers['Authorization'] = ORS_API_KEY;
+        }
+        const res = await fetch(healthUrl, { method: 'GET', signal: controller.signal, headers });
+        
+        clearTimeout(id)
+        console.log(ORS_API_KEY)
+        if (res && res.ok) {
+          setIsOsrmAvailable(true);
+          setLastOsrmCheck(Date.now());
+          setRoutingHost(host);
+          console.log(`OSRM health check succeeded for ${host}`);
+          return true;
+        }
+      } catch (e) {
+  console.warn(`OSRM health check failed for ${host}:`, e?.message || e);
+  // try next host
+      }
+    }
+    setIsOsrmAvailable(false);
+    setLastOsrmCheck(Date.now());
+    return false;
   };
 
   // Poll OSRM health periodically
@@ -126,12 +188,8 @@ export function useRouteService(): RouteService {
     setIsCalculating(true);
     
     try {
-      // quick preflight: if OSRM appears down, skip and return false
-      const ok = await checkOsrmAvailable();
-      if (!ok) {
-        console.warn('OSRM appears to be unavailable, skipping route calculation');
-        return false;
-      }
+  // quick preflight: check available hosts but continue even if the initial host is down
+  await checkOsrmAvailable();
       // 1. Corriger la position de départ si on est très proche d'une route
       const correctedStart = await correctPositionToRoad(start, mode);
       
@@ -158,83 +216,98 @@ export function useRouteService(): RouteService {
         hasDirectLine = true;
         
         // 5. Calculer la route depuis le point le plus proche jusqu'à la destination
-        const osrmMode = mode === 'bicycling' ? 'bike' : mode;
-        const url = `https://router.project-osrm.org/route/v1/${osrmMode}/${nearestStart.longitude},${nearestStart.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true`;
-        
-        const response = await fetch(url);
-        const data = await response.json();
-        
-        if (data.routes && data.routes.length > 0) {
-          const route = data.routes[0];
-          
-          // Convertir les coordonnées de la route
-          const routeCoords = (route.geometry.coordinates as [number, number][]).map(
-            ([lon, lat]) => ({
-              latitude: lat,
-              longitude: lon,
-            })
-          );
-          
-          // Détecter les virages serrés dans la route
-          const sharpTurns = detectSharpTurns(routeCoords);
-// Combiner : route complète (la ligne directe sera affichée séparément)
-          finalRouteCoords = routeCoords;
-          
-          // Calculer les informations combinées
-          const directLineDistance = distanceToRoad;
-          const routeDistance = Math.round(route.distance);
-          const totalDistance = directLineDistance + routeDistance;
-          
-          const directLineTime = Math.round(directLineDistance / (mode === 'walking' ? 80 : mode === 'bicycling' ? 250 : 500)); // vitesse approximative
-          const routeTime = Math.round(route.duration / 60);
-          const totalTime = directLineTime + routeTime;
-          
-          // Obtenir le nom de la route depuis les étapes
-          const firstStep = route.legs[0]?.steps[0];
-          const roadName = firstStep?.name || "la route";
-          
-          setRouteInfo({
-            duration: totalTime,
-            distance: totalDistance,
-            instruction: `Rejoignez ${roadName} (${Math.round(directLineDistance)}m à vol d'oiseau)`
-          });
-        }
+    const osrmMode = mode === 'bicycling' ? 'bike' : mode;
+    if (isOpenRouteService(routingHost)) {
+      const profile = osrmMode === 'bike' ? 'cycling-regular' : osrmMode === 'walking' ? 'foot-walking' : 'driving-car';
+      const url = `${routingHost}/v2/directions/${profile}?start=${nearestStart.longitude},${nearestStart.latitude}&end=${end.longitude},${end.latitude}`;
+      console.log('ORS route url', url);
+      const headers: Record<string,string> = { 'Accept': 'application/json' };
+      if (ORS_API_KEY) headers['Authorization'] = ORS_API_KEY;
+      const response = await fetch(url, { headers });
+      const data = await response.json();
+      if (data && data.features && data.features.length > 0) {
+        setIsOsrmAvailable(true);
+        setLastOsrmCheck(Date.now());
+        setRoutingHost(routingHost);
+        const route = data.features[0];
+        const routeCoords = (route.geometry.coordinates as [number, number][]).map(([lon, lat]) => ({ latitude: lat, longitude: lon }));
+        finalRouteCoords = routeCoords;
+        const directLineDistance = distanceToRoad;
+        const routeDistance = Math.round(route.properties?.summary?.distance ?? 0);
+        const totalDistance = directLineDistance + routeDistance;
+        const directLineTime = Math.round(directLineDistance / (mode === 'walking' ? 80 : mode === 'bicycling' ? 250 : 500));
+        const routeTime = Math.round((route.properties?.summary?.duration ?? 0) / 60);
+        const totalTime = directLineTime + routeTime;
+        const firstStep = route.properties?.segments?.[0]?.steps?.[0];
+        const roadName = firstStep?.name || firstStep?.instruction || 'la route';
+        setRouteInfo({ duration: totalTime, distance: totalDistance, instruction: `Rejoignez ${roadName} (${Math.round(directLineDistance)}m à vol d'oiseau)` });
+      }
+    } else {
+      const url = `${routingHost}/route/v1/${osrmMode}/${nearestStart.longitude},${nearestStart.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true`;
+      console.log(url);
+      const response = await fetch(url);
+      const data = await response.json();
+      if (data.routes && data.routes.length > 0) {
+        // mark OSRM available on successful response
+        setIsOsrmAvailable(true);
+        setLastOsrmCheck(Date.now());
+        setRoutingHost(routingHost);
+        const route = data.routes[0];
+        const routeCoords = (route.geometry.coordinates as [number, number][]).map(([lon, lat]) => ({ latitude: lat, longitude: lon }));
+        finalRouteCoords = routeCoords;
+        const directLineDistance = distanceToRoad;
+        const routeDistance = Math.round(route.distance);
+        const totalDistance = directLineDistance + routeDistance;
+        const directLineTime = Math.round(directLineDistance / (mode === 'walking' ? 80 : mode === 'bicycling' ? 250 : 500));
+        const routeTime = Math.round(route.duration / 60);
+        const totalTime = directLineTime + routeTime;
+        const firstStep = route.legs[0]?.steps[0];
+        const roadName = firstStep?.name || 'la route';
+        setRouteInfo({ duration: totalTime, distance: totalDistance, instruction: `Rejoignez ${roadName} (${Math.round(directLineDistance)}m à vol d'oiseau)` });
+      }
+    }
       } else {
         // Si on est déjà proche d'une route, utiliser la route normale depuis la position corrigée
-        const osrmMode = mode === 'bicycling' ? 'bike' : mode;
-        const url = `https://router.project-osrm.org/route/v1/${osrmMode}/${correctedStart.longitude},${correctedStart.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true`;
-        
-        const response = await fetch(url);
-        const data = await response.json();
-        
-        if (data.routes && data.routes.length > 0) {
-          const route = data.routes[0];
-          
-          // Convertir les coordonnées
-          finalRouteCoords = (route.geometry.coordinates as [number, number][]).map(
-            ([lon, lat]) => ({
-              latitude: lat,
-              longitude: lon,
-            })
-          );
-          
-          // Détecter les virages serrés
-          const sharpTurns = detectSharpTurns(finalRouteCoords);
-// Extraire les informations de route
-          const duration = Math.round(route.duration / 60);
-          const distance = Math.round(route.distance);
-          const instruction = route.legs[0]?.steps[0]?.maneuver?.instruction ?? "Suivre l'itinéraire";
-          
-          setRouteInfo({
-            duration,
-            distance,
-            instruction
-          });
-          
-          // Réinitialiser les données de ligne directe
-          setDirectLineCoords([]);
-          setNearestRoadPoint(null);
-        }
+    const osrmMode = mode === 'bicycling' ? 'bike' : mode;
+    if (isOpenRouteService(routingHost)) {
+      const profile = osrmMode === 'bike' ? 'cycling-regular' : osrmMode === 'walking' ? 'foot-walking' : 'driving-car';
+      const url = `${routingHost}/v2/directions/${profile}?start=${correctedStart.longitude},${correctedStart.latitude}&end=${end.longitude},${end.latitude}`;
+      const headers: Record<string,string> = { 'Accept': 'application/json' };
+      if (ORS_API_KEY) headers['Authorization'] = ORS_API_KEY;
+      const response = await fetch(url, { headers });
+      const data = await response.json();
+      if (data && data.features && data.features.length > 0) {
+        setIsOsrmAvailable(true);
+        setLastOsrmCheck(Date.now());
+        setRoutingHost(routingHost);
+        const route = data.features[0];
+        finalRouteCoords = (route.geometry.coordinates as [number, number][]).map(([lon, lat]) => ({ latitude: lat, longitude: lon }));
+        const duration = Math.round((route.properties?.summary?.duration ?? 0) / 60);
+        const distance = Math.round(route.properties?.summary?.distance ?? 0);
+        const instruction = route.properties?.segments?.[0]?.steps?.[0]?.instruction ?? "Suivre l'itinéraire";
+        setRouteInfo({ duration, distance, instruction });
+        setDirectLineCoords([]);
+        setNearestRoadPoint(null);
+      }
+    } else {
+      const url = `${routingHost}/route/v1/${osrmMode}/${correctedStart.longitude},${correctedStart.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true`;
+      const response = await fetch(url);
+      const data = await response.json();
+      if (data.routes && data.routes.length > 0) {
+        setIsOsrmAvailable(true);
+        setLastOsrmCheck(Date.now());
+        setRoutingHost(routingHost);
+        const route = data.routes[0];
+        finalRouteCoords = (route.geometry.coordinates as [number, number][]).map(([lon, lat]) => ({ latitude: lat, longitude: lon }));
+        const sharpTurns = detectSharpTurns(finalRouteCoords);
+        const duration = Math.round(route.duration / 60);
+        const distance = Math.round(route.distance);
+        const instruction = route.legs[0]?.steps[0]?.maneuver?.instruction ?? "Suivre l'itinéraire";
+        setRouteInfo({ duration, distance, instruction });
+        setDirectLineCoords([]);
+        setNearestRoadPoint(null);
+      }
+    }
       }
       
       setRouteCoords(finalRouteCoords);
@@ -243,7 +316,7 @@ export function useRouteService(): RouteService {
       
       return true;
       
-    } catch (error) {
+  } catch (error) {
       console.error("Erreur lors du calcul de l'itinéraire hybride:", error);
   // mark OSRM as down on network errors
   setIsOsrmAvailable(false);
@@ -333,46 +406,58 @@ export function useRouteService(): RouteService {
       const ok = await checkOsrmAvailable();
       if (!ok) {
         console.warn('OSRM appears to be unavailable, skipping route calculation');
-        return false;
+        // return false;
       }
-      // Convertir le mode si nécessaire
-      const osrmMode = mode === 'bicycling' ? 'bike' : mode;
-      
-      const url = `https://router.project-osrm.org/route/v1/${osrmMode}/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true`;
-      
-  const response = await fetch(url);
-  const data = await response.json();
-      
-      if (data.routes && data.routes.length > 0) {
-        const route = data.routes[0];
-        
-        // Convertir les coordonnées
-        const coords = (route.geometry.coordinates as [number, number][]).map(
-          ([lon, lat]) => ({
-            latitude: lat,
-            longitude: lon,
-          })
-        );
-        
-        setRouteCoords(coords);
-        setDestination(end);
-        
-        // Extraire les informations de route
-        const duration = Math.round(route.duration / 60); // Convertir en minutes
-        const distance = Math.round(route.distance); // Distance en mètres
-        const instruction = route.legs[0]?.steps[0]?.maneuver?.instruction ?? "Suivre l'itinéraire";
-        
-        setRouteInfo({
-          duration,
-          distance,
-          instruction
-        });
-        
-        return true;
-      } else {
-        console.warn("Aucun itinéraire trouvé");
-        return false;
-      }
+        // Convertir le mode si nécessaire
+        const osrmMode = mode === 'bicycling' ? 'bike' : mode;
+        if (isOpenRouteService(routingHost)) {
+          const profile = osrmMode === 'bike' ? 'cycling-regular' : osrmMode === 'walking' ? 'foot-walking' : 'driving-car';
+          const url = `${routingHost}/v2/directions/${profile}?start=${start.longitude},${start.latitude}&end=${end.longitude},${end.latitude}`;
+          console.log('Fetching route from ORS:', url);
+          const headers: Record<string,string> = { 'Accept': 'application/json' };
+          if (ORS_API_KEY) headers['Authorization'] = ORS_API_KEY;
+          const response = await fetch(url, { headers });
+          const data = await response.json();
+          if (data && data.features && data.features.length > 0) {
+            setIsOsrmAvailable(true);
+            setLastOsrmCheck(Date.now());
+            setRoutingHost(routingHost);
+            const route = data.features[0];
+            const coords = (route.geometry.coordinates as [number, number][]).map(([lon, lat]) => ({ latitude: lat, longitude: lon }));
+            setRouteCoords(coords);
+            setDestination(end);
+            const duration = Math.round((route.properties?.summary?.duration ?? 0) / 60);
+            const distance = Math.round(route.properties?.summary?.distance ?? 0);
+            const instruction = route.properties?.segments?.[0]?.steps?.[0]?.instruction ?? "Suivre l'itinéraire";
+            setRouteInfo({ duration, distance, instruction });
+            return true;
+          }
+          console.warn("Aucun itinéraire trouvé (ORS)");
+          return false;
+        } else {
+          const url = `${routingHost}/route/v1/${osrmMode}/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true`;
+          console.log("Fetching route from OSRM:", url);
+          const response = await fetch(url);
+          const data = await response.json();
+          if (data.routes && data.routes.length > 0) {
+            // mark OSRM available on successful response
+            setIsOsrmAvailable(true);
+            setLastOsrmCheck(Date.now());
+            setRoutingHost(routingHost);
+            const route = data.routes[0];
+            const coords = (route.geometry.coordinates as [number, number][]).map(([lon, lat]) => ({ latitude: lat, longitude: lon }));
+            setRouteCoords(coords);
+            setDestination(end);
+            const duration = Math.round(route.duration / 60);
+            const distance = Math.round(route.distance);
+            const instruction = route.legs[0]?.steps[0]?.maneuver?.instruction ?? "Suivre l'itinéraire";
+            setRouteInfo({ duration, distance, instruction });
+            return true;
+          } else {
+            console.warn("Aucun itinéraire trouvé");
+            return false;
+          }
+        }
     } catch (error) {
       console.error("Erreur lors du calcul de l'itinéraire:", error);
       setIsOsrmAvailable(false);
@@ -394,55 +479,73 @@ export function useRouteService(): RouteService {
     setIsCalculating(true);
     
     try {
-      const ok = await checkOsrmAvailable();
-      if (!ok) {
-        console.warn('OSRM appears to be unavailable, skipping multi-step route calculation');
-        return false;
-      }
+      // Instead of bailing early when primary host seems down, try all hosts in order
       const osrmMode = mode === 'bicycling' ? 'bike' : mode;
-      
-      // Construire la chaîne de coordonnées
-      const coordsString = waypoints
-        .map(point => `${point.longitude},${point.latitude}`)
-        .join(';');
-      
-      const url = `https://router.project-osrm.org/route/v1/${osrmMode}/${coordsString}?overview=full&geometries=geojson&steps=true`;
-      
-  const response = await fetch(url);
-  const data = await response.json();
-      
-      if (data.routes && data.routes.length > 0) {
-        const route = data.routes[0];
-        
-        // Convertir les coordonnées
-        const coords = (route.geometry.coordinates as [number, number][]).map(
-          ([lon, lat]) => ({
-            latitude: lat,
-            longitude: lon,
-          })
-        );
-        
-        setRouteCoords(coords);
-        setDestination(waypoints[waypoints.length - 1]);
-        
-        // Calculer la durée et distance totales
-        const totalDuration = Math.round(route.duration / 60);
-        const totalDistance = Math.round(route.distance);
-        
-        // Prendre la première instruction
-        const firstInstruction = route.legs[0]?.steps[0]?.maneuver?.instruction ?? "Suivre l'itinéraire";
-        
-        setRouteInfo({
-          duration: totalDuration,
-          distance: totalDistance,
-          instruction: firstInstruction
-        });
-        
-        return true;
-      } else {
-        console.warn("Aucun itinéraire multi-étapes trouvé");
-        return false;
+      const coordsString = waypoints.map(point => `${point.longitude},${point.latitude}`).join(';');
+
+      for (const host of ROUTING_HOSTS) {
+        try {
+          if (isOpenRouteService(host)) {
+            if (!ORS_API_KEY) {
+              console.warn('OpenRouteService selected but ORS_API_KEY not provided; skipping');
+              continue;
+            }
+            const profile = osrmMode === 'bike' ? 'cycling-regular' : osrmMode === 'walking' ? 'foot-walking' : 'driving-car';
+            const url = `${host}/v2/directions/${profile}`;
+            const headers: Record<string,string> = { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': ORS_API_KEY };
+            const body = JSON.stringify({ coordinates: waypoints.map(p => [p.longitude, p.latitude]) });
+            const response = await fetch(url, { method: 'POST', headers, body });
+            if (!response.ok) {
+              console.warn(`ORS multi-step failed with status ${response.status}`);
+              continue;
+            }
+            const data = await response.json();
+            if (data && data.features && data.features.length > 0) {
+              setIsOsrmAvailable(true);
+              setLastOsrmCheck(Date.now());
+              setRoutingHost(host);
+              const route = data.features[0];
+              const coords = (route.geometry.coordinates as [number, number][]).map(([lon, lat]) => ({ latitude: lat, longitude: lon }));
+              setRouteCoords(coords);
+              setDestination(waypoints[waypoints.length - 1]);
+              const totalDuration = Math.round((route.properties?.summary?.duration ?? 0) / 60);
+              const totalDistance = Math.round(route.properties?.summary?.distance ?? 0);
+              const firstInstruction = route.properties?.segments?.[0]?.steps?.[0]?.instruction ?? "Suivre l'itinéraire";
+              setRouteInfo({ duration: totalDuration, distance: totalDistance, instruction: firstInstruction });
+              return true;
+            }
+            continue;
+          } else {
+            const url = `${host}/route/v1/${osrmMode}/${coordsString}?overview=full&geometries=geojson&steps=true`;
+            const response = await fetch(url);
+            if (!response.ok) {
+              continue;
+            }
+            const data = await response.json();
+            if (data.routes && data.routes.length > 0) {
+              setIsOsrmAvailable(true);
+              setLastOsrmCheck(Date.now());
+              setRoutingHost(host);
+              const route = data.routes[0];
+              const coords = (route.geometry.coordinates as [number, number][]).map(([lon, lat]) => ({ latitude: lat, longitude: lon }));
+              setRouteCoords(coords);
+              setDestination(waypoints[waypoints.length - 1]);
+              const totalDuration = Math.round(route.duration / 60);
+              const totalDistance = Math.round(route.distance);
+              const firstInstruction = route.legs[0]?.steps[0]?.maneuver?.instruction ?? "Suivre l'itinéraire";
+              setRouteInfo({ duration: totalDuration, distance: totalDistance, instruction: firstInstruction });
+              return true;
+            }
+            continue;
+          }
+        } catch (e) {
+          console.warn(`Multi-step route failed on ${host}:`, e?.message || e);
+          continue;
+        }
       }
+
+      console.warn('Aucun itinéraire multi-étapes trouvé sur tous les hôtes');
+      return false;
     } catch (error) {
       console.error("Erreur lors du calcul de l'itinéraire multi-étapes:", error);
       setIsOsrmAvailable(false);
@@ -592,11 +695,21 @@ export class RouteCalculationService {
   } | null> {
     try {
       const osrmMode = mode === 'bicycling' ? 'bike' : mode;
-      
-      const url = `https://router.project-osrm.org/route/v1/${osrmMode}/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true`;
-      
-      const response = await fetch(url);
-      const data = await response.json();
+
+      const hosts = ['https://router.project-osrm.org', 'https://routing.openstreetmap.de'];
+      let data: any = null;
+      for (const host of hosts) {
+        try {
+          const url = `${host}/route/v1/${osrmMode}/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true`;
+          const response = await fetch(url);
+          if (!response.ok) continue;
+          data = await response.json();
+          break;
+        } catch (e) {
+          // try next host
+        }
+      }
+      if (!data) return null;
       
       if (data.routes && data.routes.length > 0) {
         const route = data.routes[0];

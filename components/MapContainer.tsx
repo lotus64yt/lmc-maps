@@ -797,7 +797,7 @@ export default function MapContainer({
                 coordinate={[location.longitude, location.latitude]}
                 anchor={{ x: 0.5, y: 0.5 }}
               >
-                {/* Inline simple marker to avoid PointAnnotation child tagging issues */}
+                {/* Keep the same view tree, toggle visibility to avoid view tag issues */}
                 <View
                   collapsable={false}
                   style={{
@@ -807,37 +807,38 @@ export default function MapContainer({
                     justifyContent: 'center',
                   }}
                 >
-                  {isNavigating ? (
-                    <View
-                      style={{
-                        width: 34,
-                        height: 34,
-                        borderRadius: 17,
-                        backgroundColor: '#007AFF',
-                        borderWidth: 3,
-                        borderColor: 'white',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <View
-                        style={{ transform: [{ rotate: getArrowRotation() }] }}
-                      >
-                        <NavigationArrow size={20} color="white" />
-                      </View>
+                  {/* Background ring used in navigating mode (large blue) */}
+                  <View
+                    style={{
+                      position: 'absolute',
+                      width: 34,
+                      height: 34,
+                      borderRadius: 17,
+                      backgroundColor: '#007AFF',
+                      borderWidth: 3,
+                      borderColor: 'white',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      opacity: isNavigating ? 1 : 0,
+                    }}
+                  >
+                    <View style={{ transform: [{ rotate: getArrowRotation() }] }}>
+                      <NavigationArrow size={20} color="white" />
                     </View>
-                  ) : (
-                    <View
-                      style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: 12,
-                        borderWidth: 3,
-                        borderColor: '#007AFF',
-                        backgroundColor: 'transparent',
-                      }}
-                    />
-                  )}
+                  </View>
+
+                  {/* Small ring shown when not navigating — kept in tree but toggled */}
+                  <View
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: 12,
+                      borderWidth: 3,
+                      borderColor: '#007AFF',
+                      backgroundColor: 'transparent',
+                      opacity: isNavigating ? 0 : 1,
+                    }}
+                  />
                 </View>
               </PointAnnotation>
             )}
@@ -879,7 +880,7 @@ export default function MapContainer({
                   id={`poi-${poi.id}-${index}`}
                   coordinate={[poi.lon, poi.lat]}
                 >
-                  <View style={styles.poiMarker}>
+                  <View collapsable={false} style={styles.poiMarker}>
                     <MaterialIcons
                       name="place"
                       size={selectedPOI?.id === poi.id ? 30 : 24}
@@ -1063,7 +1064,7 @@ export default function MapContainer({
                   id={`sharp-turn-${index}`}
                   coordinate={coordArr}
                 >
-                  <View collapsable={false} style={styles.sharpTurnMarker}>
+                    <View collapsable={false} style={styles.sharpTurnMarker}>
                     <MaterialIcons name="warning" size={12} color="white" />
                   </View>
                 </PointAnnotation>
