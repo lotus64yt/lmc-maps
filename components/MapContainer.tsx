@@ -9,7 +9,6 @@ import Mapbox, {
   CircleLayer,
   SymbolLayer,
   AnimatedShape,
-  FillLayer,
 } from "@rnmapbox/maps";
 import * as Location from "expo-location";
 import { Animated } from "react-native";
@@ -172,67 +171,6 @@ export default function MapContainer({
     let θ = (Math.atan2(y, x) * 180) / Math.PI;
     if (θ < 0) θ += 360;
     return θ;
-  };
-
-  // Destination point given start lat/lon, bearing (deg) and distance (meters)
-  const destinationPoint = (
-    lat: number,
-    lon: number,
-    bearingDeg: number,
-    distanceMeters: number
-  ): [number, number] => {
-    const R = 6371e3; // earth radius in meters
-    const δ = distanceMeters / R;
-    const θ = (bearingDeg * Math.PI) / 180;
-    const φ1 = (lat * Math.PI) / 180;
-    const λ1 = (lon * Math.PI) / 180;
-
-    const sinφ2 =
-      Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ);
-    const φ2 = Math.asin(Math.max(-1, Math.min(1, sinφ2)));
-    const y = Math.sin(θ) * Math.sin(δ) * Math.cos(φ1);
-    const x = Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2);
-    const λ2 = λ1 + Math.atan2(y, x);
-
-    return [λ2 * (180 / Math.PI), φ2 * (180 / Math.PI)]; // [lon, lat]
-  };
-
-  // Build a polygon approximating a large arrow centered on `coord` and pointing at `bearing`
-  const buildArrowPolygon = (
-    coord: [number, number], // [lon, lat]
-    bearing: number,
-    scale = 1
-  ): [number, number][][] => {
-    // Sizes in meters (tweak to get a visually larger highlight than the route)
-    const forward = 35 * scale; // tip distance
-    const wing = 18 * scale; // wing extent
-    const tail = 12 * scale; // tail/backwards extent
-
-    const lon = coord[0];
-    const lat = coord[1];
-
-    const tip = destinationPoint(lat, lon, bearing, forward);
-    const rightWing = destinationPoint(lat, lon, bearing - 140, wing);
-    const tailRight = destinationPoint(lat, lon, bearing + 180 - 8, tail);
-    const tailLeft = destinationPoint(lat, lon, bearing + 180 + 8, tail);
-    const leftWing = destinationPoint(lat, lon, bearing + 140, wing);
-
-    // polygon must be closed (first === last)
-    const ring: [number, number][] = [
-      tip,
-      rightWing,
-      tailRight,
-      tailLeft,
-      leftWing,
-      tip,
-    ];
-
-    return [ring];
-  };
-
-  const isIntersectionManeuver = (maneuver: string | undefined) => {
-    if (!maneuver) return false;
-    return /turn|roundabout|merge|fork|uturn|rotary/i.test(maneuver);
   };
 
   // Helpers to validate coordinates before rendering PointAnnotation
@@ -609,38 +547,6 @@ export default function MapContainer({
   const directLineSourceId = `direct-line-source-${currentTimestamp}`;
   const intersectionsSourceId = `intersections-source-${currentTimestamp}`;
 
-  // GeoJSON pour les grandes flèches de navigation (intersections)
-  const navigationArrowsGeoJSON = {
-    type: "FeatureCollection" as const,
-    features: navigationSteps
-      .map((step, index) => {
-        const coord = step.coordinates as [number, number];
-        if (!isValidCoordArray(coord)) return null;
-        // Ne montrer que les étapes non encore effectuées
-        if (index < currentStepIndex) return null;
-        if (!isIntersectionManeuver(step.maneuver)) return null;
-
-        const nextCoord = navigationSteps[index + 1]?.coordinates || null;
-        let bearing = 0;
-        if (nextCoord && isValidCoordArray(nextCoord)) {
-          bearing = calculateBearing(coord[1], coord[0], nextCoord[1], nextCoord[0]);
-        }
-
-        return {
-          type: "Feature" as const,
-          properties: {
-            stepIndex: index,
-            maneuver: step.maneuver,
-          },
-          geometry: {
-            type: "Polygon" as const,
-            coordinates: buildArrowPolygon(coord, bearing, 1.0),
-          },
-        };
-      })
-      .filter(Boolean),
-  };
-
   // Fonction pour détecter les virages serrés dans la route
   function detectSharpTurnsInRoute(
     coordinates: Coordinate[]
@@ -878,28 +784,6 @@ export default function MapContainer({
             )}
 
           {/* -------------------- USER ARROW (RENDER LAST TO BE ON TOP) -------------------- */}
-          {/* Large white arrow highlights for intersection steps (above route, below user arrow) */}
-          {isMapReady && navigationArrowsGeoJSON.features.length > 0 && (
-            <ShapeSource
-              id={`navigation-arrows-${currentTimestamp}`}
-              shape={navigationArrowsGeoJSON}
-            >
-              <FillLayer
-                id={`navigation-arrows-fill-${currentTimestamp}`}
-                style={{
-                  fillColor: "#FFFFFF",
-                  fillOpacity: 0.95,
-                }}
-              />
-              <LineLayer
-                id={`navigation-arrows-outline-${currentTimestamp}`}
-                style={{
-                  lineColor: "rgba(0,0,0,0.12)",
-                  lineWidth: 1,
-                }}
-              />
-            </ShapeSource>
-          )}
           {isMapReady &&
             location &&
             isFinite(location.longitude) &&
