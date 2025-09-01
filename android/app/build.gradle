@@ -95,12 +95,31 @@ packagingOptions {
     compileSdk rootProject.ext.compileSdkVersion
 
     namespace 'com.lotus64.lmcmaps'
+
+    // Determine EAS build profile to vary applicationId and displayed app name so
+    // development/preview builds can be installed side-by-side on a device.
+    // Assumption: EAS sets the environment variable EAS_BUILD_PROFILE to the profile name.
+    def easProfile = System.getenv('EAS_BUILD_PROFILE') ?: System.getenv('EAS_PROFILE') ?: 'production'
+    def baseAppId = 'com.lotus64.lmcmaps'
+    def idSuffix = ''
+    def appLabel = 'LMC Maps'
+
+    if (easProfile.toLowerCase() == 'development') {
+        idSuffix = '.dev'
+        appLabel = 'LMC Maps DEV'
+    } else if (easProfile.toLowerCase() == 'preview') {
+        idSuffix = '.preview'
+        appLabel = 'LMC Maps'
+    }
+
     defaultConfig {
-        applicationId 'com.lotus64.lmcmaps'
+        applicationId baseAppId + idSuffix
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"
+        // Override the app name resource so the installed app shows the desired label
+        resValue "string", "app_name", "\"${appLabel}\""
     }
     signingConfigs {
         debug {
