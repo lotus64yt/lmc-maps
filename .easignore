@@ -1,0 +1,48 @@
+# EAS build ignore - reduces upload size/time
+# Ignore node modules (EAS will install dependencies during build)
+node_modules
+**/node_modules
+
+# Build artifacts
+android/.gradle
+android/app/build
+android/build
+android/.cxx
+android/.externalNativeBuild
+ios/Pods
+ios/build
+**/build
+
+# Expo / generated
+.expo
+.expo-shared
+.web-build
+
+# Local env and secrets
+.env
+.env.*
+*.keystore
+*.jks
+debug.keystore
+
+# IDE / OS files
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Logs, coverage, temp
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+coverage
+.tmp
+dist
+
+# Lockfiles: keep package.json and lockfile by default (do NOT ignore package.json)
+# If you use a monorepo, you may need to adjust these rules.
+
+# If you need to include specific files that would otherwise be ignored,
+# add explicit negations below, e.g.:
+# !path/to/important.file
