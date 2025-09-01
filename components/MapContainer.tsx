@@ -9,6 +9,7 @@ import Mapbox, {
   CircleLayer,
   SymbolLayer,
   AnimatedShape,
+  FillLayer,
 } from "@rnmapbox/maps";
 import * as Location from "expo-location";
 import { Animated } from "react-native";
@@ -20,8 +21,8 @@ import { NavigationStep } from "../types/RouteTypes";
 import { useLocationService } from "@/services/LocationService";
 import UserLocationMarker from "./UserLocationMarker";
 import NavigationArrow from "./ArrowSVG";
-
-Mapbox.setAccessToken("");
+// Use local Mapbox style JSON instead of remote styleURL
+import libertyStyle from "../assets/styles/liberty.json";
 
 interface Coordinate {
   latitude: number;
@@ -42,39 +43,21 @@ interface MapContainerProps {
   isFirstLoad?: boolean;
   isNavigating?: boolean;
   navigationMode?: "driving" | "walking";
-  showDirectLine?: boolean; // Pour afficher la ligne à vol d'oiseau
-  navigationSteps?: NavigationStep[]; // Étapes de navigation
-  currentStepIndex?: number; // Index de l'étape actuelle
-  onNavigationStepPress?: (stepIndex: number, step: NavigationStep) => void; // Callback pour clic sur étape
-  // Nouvelles props pour le tracé hybride
+  showDirectLine?: boolean;
+  navigationSteps?: NavigationStep[];
+  currentStepIndex?: number;
+  onNavigationStepPress?: (stepIndex: number, step: NavigationStep) => void;
   directLineCoords?: Coordinate[];
   nearestRoadPoint?: Coordinate | null;
-  // Nouvelles props pour la progression de navigation
   completedRouteCoords?: Coordinate[];
   remainingRouteCoords?: Coordinate[];
   progressPercentage?: number;
   hasDirectLineSegment?: boolean;
-  // Props pour le point de location sélectionné
   showLocationPoint?: boolean;
   selectedLocationCoordinate?: Coordinate | null;
-  // Props pour le parking sélectionné
-  selectedParking?: {
-    coordinate: Coordinate;
-    name: string;
-  } | null;
-  // Nouvelle prop pour la direction de la route
-  routeDirection?: {
-    bearing: number;
-    isOnRoute: boolean;
-  };
-  // Override optionnel du heading de la caméra (null = pas d'override)
+  selectedParking?: { coordinate: Coordinate; name: string } | null;
+  routeDirection?: { bearing: number; isOnRoute: boolean } | undefined;
   mapHeadingOverride?: number | null;
-}
-
-interface SavedMapState {
-  latitude: number;
-  longitude: number;
-  zoomLevel: number;
 }
 
 export default function MapContainer({
@@ -142,7 +125,14 @@ export default function MapContainer({
   } | null>(null);
 
   // Debug log pour le heading
-  useEffect(() => {}, [heading, currentHeading, compassMode, mapBearing]);
+  useEffect(() => {
+    // Log user marker state for debugging
+    try {
+      const rotation = getArrowRotation();
+    } catch (e) {
+      // ignore
+    }
+  }, [heading, currentHeading, compassMode, mapBearing, isNavigating, routeDirection]);
 
   // Fonction utilitaire pour calculer la distance entre deux points
   const calculateDistance = (
@@ -182,6 +172,67 @@ export default function MapContainer({
     let θ = (Math.atan2(y, x) * 180) / Math.PI;
     if (θ < 0) θ += 360;
     return θ;
+  };
+
+  // Destination point given start lat/lon, bearing (deg) and distance (meters)
+  const destinationPoint = (
+    lat: number,
+    lon: number,
+    bearingDeg: number,
+    distanceMeters: number
+  ): [number, number] => {
+    const R = 6371e3; // earth radius in meters
+    const δ = distanceMeters / R;
+    const θ = (bearingDeg * Math.PI) / 180;
+    const φ1 = (lat * Math.PI) / 180;
+    const λ1 = (lon * Math.PI) / 180;
+
+    const sinφ2 =
+      Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ);
+    const φ2 = Math.asin(Math.max(-1, Math.min(1, sinφ2)));
+    const y = Math.sin(θ) * Math.sin(δ) * Math.cos(φ1);
+    const x = Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2);
+    const λ2 = λ1 + Math.atan2(y, x);
+
+    return [λ2 * (180 / Math.PI), φ2 * (180 / Math.PI)]; // [lon, lat]
+  };
+
+  // Build a polygon approximating a large arrow centered on `coord` and pointing at `bearing`
+  const buildArrowPolygon = (
+    coord: [number, number], // [lon, lat]
+    bearing: number,
+    scale = 1
+  ): [number, number][][] => {
+    // Sizes in meters (tweak to get a visually larger highlight than the route)
+    const forward = 35 * scale; // tip distance
+    const wing = 18 * scale; // wing extent
+    const tail = 12 * scale; // tail/backwards extent
+
+    const lon = coord[0];
+    const lat = coord[1];
+
+    const tip = destinationPoint(lat, lon, bearing, forward);
+    const rightWing = destinationPoint(lat, lon, bearing - 140, wing);
+    const tailRight = destinationPoint(lat, lon, bearing + 180 - 8, tail);
+    const tailLeft = destinationPoint(lat, lon, bearing + 180 + 8, tail);
+    const leftWing = destinationPoint(lat, lon, bearing + 140, wing);
+
+    // polygon must be closed (first === last)
+    const ring: [number, number][] = [
+      tip,
+      rightWing,
+      tailRight,
+      tailLeft,
+      leftWing,
+      tip,
+    ];
+
+    return [ring];
+  };
+
+  const isIntersectionManeuver = (maneuver: string | undefined) => {
+    if (!maneuver) return false;
+    return /turn|roundabout|merge|fork|uturn|rotary/i.test(maneuver);
   };
 
   // Helpers to validate coordinates before rendering PointAnnotation
@@ -338,13 +389,20 @@ export default function MapContainer({
 
   // Handler pour quand la map est prête
   const handleMapReady = () => {
-    setIsMapReady(true);
-    // Notifier le contexte que la Map native est prête pour vider la file d'attente
-    try {
-      if (notifyMapReady) notifyMapReady();
-    } catch (e) {
-      // Ignorer les erreurs ici - le flush est best-effort
-    }
+    // Small delay to avoid Android race where native MapView tries to resolve
+    // React view tags before the RN views have been attached. This prevents
+    // errors like: "ViewTagResolver | view: null found with tag: XX"
+    // A short timeout or requestAnimationFrame gives RN time to attach child
+    // views used by annotations (PointAnnotation) before native lookup.
+    setTimeout(() => {
+      setIsMapReady(true);
+      // Notifier le contexte que la Map native est prête pour vider la file d'attente
+      try {
+        if (notifyMapReady) notifyMapReady();
+      } catch (e) {
+        // Ignorer les erreurs ici - le flush est best-effort
+      }
+    }, 50);
   };
 
   // Charger la dernière position depuis AsyncStorage au montage
@@ -551,6 +609,38 @@ export default function MapContainer({
   const directLineSourceId = `direct-line-source-${currentTimestamp}`;
   const intersectionsSourceId = `intersections-source-${currentTimestamp}`;
 
+  // GeoJSON pour les grandes flèches de navigation (intersections)
+  const navigationArrowsGeoJSON = {
+    type: "FeatureCollection" as const,
+    features: navigationSteps
+      .map((step, index) => {
+        const coord = step.coordinates as [number, number];
+        if (!isValidCoordArray(coord)) return null;
+        // Ne montrer que les étapes non encore effectuées
+        if (index < currentStepIndex) return null;
+        if (!isIntersectionManeuver(step.maneuver)) return null;
+
+        const nextCoord = navigationSteps[index + 1]?.coordinates || null;
+        let bearing = 0;
+        if (nextCoord && isValidCoordArray(nextCoord)) {
+          bearing = calculateBearing(coord[1], coord[0], nextCoord[1], nextCoord[0]);
+        }
+
+        return {
+          type: "Feature" as const,
+          properties: {
+            stepIndex: index,
+            maneuver: step.maneuver,
+          },
+          geometry: {
+            type: "Polygon" as const,
+            coordinates: buildArrowPolygon(coord, bearing, 1.0),
+          },
+        };
+      })
+      .filter(Boolean),
+  };
+
   // Fonction pour détecter les virages serrés dans la route
   function detectSharpTurnsInRoute(
     coordinates: Coordinate[]
@@ -614,7 +704,7 @@ export default function MapContainer({
         <MapView
           ref={mapRef}
           style={styles.map}
-          styleURL="https://tiles.openfreemap.org/styles/liberty"
+          styleJSON={JSON.stringify(libertyStyle)}
           onPress={handleMapPress}
           onTouchStart={onMapPanDrag}
           onDidFinishLoadingMap={handleMapReady}
@@ -788,6 +878,28 @@ export default function MapContainer({
             )}
 
           {/* -------------------- USER ARROW (RENDER LAST TO BE ON TOP) -------------------- */}
+          {/* Large white arrow highlights for intersection steps (above route, below user arrow) */}
+          {isMapReady && navigationArrowsGeoJSON.features.length > 0 && (
+            <ShapeSource
+              id={`navigation-arrows-${currentTimestamp}`}
+              shape={navigationArrowsGeoJSON}
+            >
+              <FillLayer
+                id={`navigation-arrows-fill-${currentTimestamp}`}
+                style={{
+                  fillColor: "#FFFFFF",
+                  fillOpacity: 0.95,
+                }}
+              />
+              <LineLayer
+                id={`navigation-arrows-outline-${currentTimestamp}`}
+                style={{
+                  lineColor: "rgba(0,0,0,0.12)",
+                  lineWidth: 1,
+                }}
+              />
+            </ShapeSource>
+          )}
           {isMapReady &&
             location &&
             isFinite(location.longitude) &&
@@ -822,7 +934,7 @@ export default function MapContainer({
                       opacity: isNavigating ? 1 : 0,
                     }}
                   >
-                    <View style={{ transform: [{ rotate: getArrowRotation() }] }}>
+                    <View>
                       <NavigationArrow size={20} color="white" />
                     </View>
                   </View>

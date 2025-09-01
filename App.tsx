@@ -71,6 +71,12 @@ function MapContent() {
   const [navigationSteps, setNavigationSteps] = useState<any[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isRecalculatingRoute, setIsRecalculatingRoute] = useState(false);
+  const [showNavigationGuidance, setShowNavigationGuidance] = useState(false);
+  const [pendingRouteRequest, setPendingRouteRequest] = useState<{
+    start: { latitude: number; longitude: number };
+    end: { latitude: number; longitude: number };
+    mode: string;
+  } | null>(null);
 
   // États pour la progression de navigation
   const [completedRouteCoords, setCompletedRouteCoords] = useState<
@@ -455,7 +461,8 @@ function MapContent() {
     const usedZoom = zoomLevel || 13;
     const latRad = (coordinate.latitude * Math.PI) / 180;
     // m/px = 156543.03392 * cos(lat) / 2^zoom
-    const metersPerPixel = (156543.03392 * Math.cos(latRad)) / Math.pow(2, usedZoom);
+    const metersPerPixel =
+      (156543.03392 * Math.cos(latRad)) / Math.pow(2, usedZoom);
 
     // Convertir pixels -> mètres -> degrés latitude
     const metersPerDegreeLat = 111320; // approx. à la latitude moyenne
@@ -832,7 +839,12 @@ function MapContent() {
       );
     } else {
       // Si pas de localisation, simplement animer vers la destination avec ajustement pour le drawer
-  const adjustedCoord = getAdjustedCoordinate(coord, undefined, undefined, 0);
+      const adjustedCoord = getAdjustedCoordinate(
+        coord,
+        undefined,
+        undefined,
+        0
+      );
       animateToCoordinate(adjustedCoord);
     }
 
@@ -852,6 +864,11 @@ function MapContent() {
       latitude: result.latitude,
       longitude: result.longitude,
     });
+    // Move camera to the searched place so user sees it immediately when drawer opens
+    const coord = { latitude: result.latitude, longitude: result.longitude };
+    // Use the adjusted coordinate helper to compensate for the drawer height
+    const adjusted = getAdjustedCoordinate(coord, undefined, undefined, 180);
+    animateToCoordinate(adjusted, 15);
     setShowRouteDrawer(true);
   };
 
@@ -929,7 +946,7 @@ function MapContent() {
         latitude: step.coordinates[1], // Latitude
         longitude: step.coordinates[0], // Longitude
       };
-  const adjustedCoord = getAdjustedCoordinate(coord, 17, undefined, 250); // navigation-step drawer height ~250
+      const adjustedCoord = getAdjustedCoordinate(coord, 17, undefined, 250); // navigation-step drawer height ~250
       animateToCoordinate(adjustedCoord, 17); // Zoom plus serré pour voir l'étape en détail
     }
   };
@@ -972,8 +989,7 @@ function MapContent() {
             );
 
             // Calculer les étapes de navigation vers la destination finale
-            const url = `https://router.project-osrm.org/route/v1/driving/${location.longitude},${location.latitude};${finalDestination.longitude},${finalDestination.latitude}?overview=full&geometries=geojson&steps=true`;
-
+            const url = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${location.longitude},${location.latitude};${finalDestination.longitude},${finalDestination.latitude}?overview=full&geometries=geojson&steps=true&alternatives=true`;
             const response = await fetch(url);
             const data = await response.json();
 
@@ -1025,7 +1041,12 @@ function MapContent() {
           latitude: midLat,
           longitude: midLng,
         };
-  const adjustedCoord = getAdjustedCoordinate(midCoord, 15, undefined, 400); // arrival drawer ~400
+        const adjustedCoord = getAdjustedCoordinate(
+          midCoord,
+          15,
+          undefined,
+          400
+        ); // arrival drawer ~400
 
         animateToCoordinate(adjustedCoord, 15); // Zoom pour voir les deux points
       }
@@ -1059,7 +1080,12 @@ function MapContent() {
         latitude: centerLat,
         longitude: centerLng,
       };
-  const adjustedCoord = getAdjustedCoordinate(centerCoord, 16, undefined, 400); // arrival drawer ~400
+      const adjustedCoord = getAdjustedCoordinate(
+        centerCoord,
+        16,
+        undefined,
+        400
+      ); // arrival drawer ~400
 
       animateToCoordinate(adjustedCoord, 16); // Zoom approprié pour voir les deux points
     }
@@ -1157,7 +1183,7 @@ function MapContent() {
                 ];
 
                 const waypointsUrl = waypoints.join(";");
-                const url = `https://router.project-osrm.org/route/v1/driving/${waypointsUrl}?overview=full&geometries=geojson&steps=true`;
+                const url = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${waypointsUrl}?overview=full&geometries=geojson&steps=true&alternatives=true`;
                 const response = await fetch(url);
                 const data = await response.json();
 
@@ -1274,7 +1300,12 @@ function MapContent() {
 
           // Utiliser un délai pour permettre au drawer de s'ouvrir et prendre le contrôle de la caméra
           setTimeout(() => {
-            const adjustedCoord = getAdjustedCoordinate(coord, 15, undefined, 400); // POI drawer ~400
+            const adjustedCoord = getAdjustedCoordinate(
+              coord,
+              15,
+              undefined,
+              400
+            ); // POI drawer ~400
             animateToCoordinate(adjustedCoord, 15); // Zoom pour voir la zone
           }, 300); // Délai de 300ms pour que le drawer soit complètement ouvert
         }
@@ -1409,7 +1440,7 @@ function MapContent() {
           .map((wp) => `${wp.longitude},${wp.latitude}`)
           .join(";");
         const osrmMode = "driving"; // Mode par défaut pour multi-étapes
-        const url = `https://router.project-osrm.org/route/v1/${osrmMode}/${coordinates}?overview=full&geometries=geojson&steps=true`;
+  const url = `https://routing.openstreetmap.de/routed-car/route/v1/${osrmMode}/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=true`;
 
         const response = await fetch(url);
         const data = await response.json();
@@ -1504,8 +1535,13 @@ function MapContent() {
         longitude: poi.lon,
       };
       // Utiliser le padding courant du drawer si disponible pour un meilleur ajustement
-  const drawerH = typeof drawerPadding === 'number' ? drawerPadding : 400;
-      const adjustedCoord = getAdjustedCoordinate(coord, 16, undefined, drawerH);
+      const drawerH = typeof drawerPadding === "number" ? drawerPadding : 400;
+      const adjustedCoord = getAdjustedCoordinate(
+        coord,
+        16,
+        undefined,
+        drawerH
+      );
       // Utiliser l'animation verrouillée (forcer) pour éviter qu'un autre contrôleur
       // (drawer, follow-mode, etc.) n'ignore la requête de caméra.
       // Passer explicitement zoom et pitch pour un résultat prévisible.
@@ -1518,8 +1554,8 @@ function MapContent() {
     const wasFollowing = disableFollowModeTemporarily();
     setWasFollowingBeforeRoute(wasFollowing);
 
-  // Quand on lance la navigation vers ce POI, on retire la sélection visuelle
-  setSelectedPOI(null);
+    // Quand on lance la navigation vers ce POI, on retire la sélection visuelle
+    setSelectedPOI(null);
 
     // Préparer la destination pour le RouteDrawer
     const destination = {
@@ -1577,6 +1613,19 @@ function MapContent() {
     setShowRouteDrawer(true);
   };
 
+  // Quand le RouteDrawer s'ouvre, recentrer la carte sur la destination recherchée
+  useEffect(() => {
+    if (showRouteDrawer && selectedDestination) {
+      const coord = {
+        latitude: selectedDestination.latitude,
+        longitude: selectedDestination.longitude,
+      };
+      const adjusted = getAdjustedCoordinate(coord, undefined, undefined, 180);
+      // animation courte pour montrer la position recherchée
+      animateToCoordinate(adjusted, 15);
+    }
+  }, [showRouteDrawer, selectedDestination]);
+
   const handlePOIRadiusChange = (radius: number) => {
     setPOIRadius(radius);
   };
@@ -1589,100 +1638,63 @@ function MapContent() {
   };
 
   const handleStartNavigation = async (transportMode: string = "driving") => {
-    if (selectedDestination && location) {
-      // Démarrer d'abord la route normale
-      await handleSelectLocation(selectedDestination);
+    if (!selectedDestination || !location) return;
 
-      // Obtenir les données de route détaillées avec les étapes
-      const start = {
-        latitude: location.latitude,
-        longitude: location.longitude,
-      };
-      const end = {
-        latitude: selectedDestination.latitude,
-        longitude: selectedDestination.longitude,
-      };
+    // Close drawer immediately and show navigation guidance UI.
+    setShowRouteDrawer(false);
+    setShowNavigationGuidance(true);
 
-      try {
-        // Mapper le mode de transport vers le mode OSRM
-        let osrmMode = "driving";
-        switch (transportMode) {
-          case "walking":
-            osrmMode = "foot";
-            break;
-          case "cycling":
-            osrmMode = "bike";
-            break;
-          default:
-            osrmMode = "driving";
-        }
+    // Prepare routeRequest object that NavigationGuidance will handle.
+    const start = {
+      latitude: location.latitude,
+      longitude: location.longitude,
+    };
+    const end = {
+      latitude: selectedDestination.latitude,
+      longitude: selectedDestination.longitude,
+    };
 
-        // Démarrer le mode de navigation approprié selon le transport
-        if (transportMode === "walking") {
-          startWalkingNavigation();
-        } else if (transportMode === "driving") {
-          startDrivingNavigation();
-        } else {
-          // Pour les autres modes (cycling, etc.), utiliser driving par défaut
-          startDrivingNavigation();
-        }
+    // If we already have raw route data from the routeService that targets the same
+    // destination, reuse it to avoid duplicate requests.
+    const hasExistingRouteData =
+      routeService &&
+      routeService.lastRawRouteData &&
+      selectedDestination &&
+      routeService.destination &&
+      routeService.destination.latitude === selectedDestination.latitude &&
+      routeService.destination.longitude === selectedDestination.longitude;
 
-        // Récupérer les étapes de navigation depuis l'API OSRM
-        const url = `https://router.project-osrm.org/route/v1/${osrmMode}/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true`;
-        const response = await fetch(url);
-        const data = await response.json();
-
-        if (data.routes && data.routes.length > 0) {
-          const route = data.routes[0];
-          const navigationSteps =
-            NavigationService.convertRouteToNavigationSteps(data);
-
-          // Calculer la durée totale en minutes pour le check de sécurité
-          const routeDurationMinutes = Math.round(route.duration / 60);
-
-          // Vérifier si c'est un long trajet (plus de 2h)
-          const isLongTrip = checkTripSafety(routeDurationMinutes);
-
-          if (isLongTrip) {
-            // Le modal de sécurité va s'afficher, mais on prépare la navigation
-            setNavigationSteps(navigationSteps);
-            return; // Attendre la décision de l'utilisateur
-          }
-
-          // Sauvegarder les étapes pour l'affichage sur la carte
-          setNavigationSteps(navigationSteps);
-          setCurrentStepIndex(0);
-
-          // Démarrer la navigation avec le service de route
-          NavigationService.startNavigation(
-            navigationSteps,
-            routeService,
-            osrmMode
-          );
-          setIsNavigating(true);
-        } else if (transportMode === "walking") {
-          // Si pas de route disponible en mode marche, utiliser la ligne directe
-          setIsNavigating(true);
-        }
-      } catch (error) {
-        console.error(
-          "Erreur lors de la récupération des étapes de navigation:",
-          error
-        );
-        // En cas d'erreur en mode marche, continuer avec la navigation directe
-        if (transportMode === "walking") {
-          setIsNavigating(true);
-        }
-      }
-
-      setShowRouteDrawer(false);
+    if (hasExistingRouteData) {
+      // Pass routeData via NavigationGuidance by keeping pendingRequest null and
+      // relying on App's `routeService.lastRawRouteData` prop already wired to NavigationGuidance.
+      setPendingRouteRequest(null);
+    } else {
+      setPendingRouteRequest({ start, end, mode: transportMode });
+      setIsRecalculatingRoute(true);
     }
+
+    // Start the UI navigation mode (visual) immediately while guidance loads the route.
+    if (transportMode === "walking") startWalkingNavigation();
+    else startDrivingNavigation();
+    // Quickly animate the camera to the user's position so NavigationGuidance appears faster
+    if (location) {
+      // zoom ~17, short duration for snappier transition
+      animateToCoordinateLocked(
+        { latitude: location.latitude, longitude: location.longitude },
+        17,
+        undefined,
+        300
+      );
+    }
+    // Protect route from being cleared while navigation is starting
+    setIsNavigating(true);
   };
 
   const handleStopNavigation = () => {
     NavigationService.stopNavigation();
     stopNavigation(); // Arrêter la navigation piétonne aussi
     setIsNavigating(false);
+    setShowNavigationGuidance(false);
     setNavigationSteps([]);
     setCurrentStepIndex(0);
 
@@ -1762,7 +1774,12 @@ function MapContent() {
         longitude: destination.longitude,
       };
       setDestination(coord);
-  const adjustedCoord = getAdjustedCoordinate(coord, undefined, undefined, 350); // multi-step drawer ~350
+      const adjustedCoord = getAdjustedCoordinate(
+        coord,
+        undefined,
+        undefined,
+        350
+      ); // multi-step drawer ~350
       animateToCoordinate(adjustedCoord);
     }
   };
@@ -2048,14 +2065,24 @@ function MapContent() {
                   };
                   animateToCoordinateLocked(adjustedCoord);
                 } else {
-                  const adjustedCoord = getAdjustedCoordinate(coordinate, undefined, undefined, 0);
+                  const adjustedCoord = getAdjustedCoordinate(
+                    coordinate,
+                    undefined,
+                    undefined,
+                    0
+                  );
                   animateToCoordinateLocked(adjustedCoord);
                 }
               }, 100);
             } else {
               if (location) {
                 setTimeout(() => {
-                  const adjustedCoord = getAdjustedCoordinate(location, undefined, undefined, 0);
+                  const adjustedCoord = getAdjustedCoordinate(
+                    location,
+                    undefined,
+                    undefined,
+                    0
+                  );
                   animateToCoordinateLocked(adjustedCoord);
                 }, 100);
               }
@@ -2104,14 +2131,24 @@ function MapContent() {
                   };
                   animateToCoordinateLocked(adjustedCoord);
                 } else {
-                  const adjustedCoord = getAdjustedCoordinate(coordinate, undefined, undefined, 0);
+                  const adjustedCoord = getAdjustedCoordinate(
+                    coordinate,
+                    undefined,
+                    undefined,
+                    0
+                  );
                   animateToCoordinateLocked(adjustedCoord);
                 }
               }, 100);
             } else {
               if (location) {
                 setTimeout(() => {
-                  const adjustedCoord = getAdjustedCoordinate(location, undefined, undefined, 0);
+                  const adjustedCoord = getAdjustedCoordinate(
+                    location,
+                    undefined,
+                    undefined,
+                    0
+                  );
                   animateToCoordinateLocked(adjustedCoord);
                 }, 100);
               }
@@ -2184,6 +2221,25 @@ function MapContent() {
           onClose={handleCloseDrawer}
           onStartNavigation={handleStartNavigation}
           onTransportModeChange={handleTransportModeChange}
+          onOpened={() => {
+            // Re-apply fitToRoute once drawer animation completed so camera accounts for final drawer size
+            if (
+              location &&
+              selectedDestination &&
+              routeCoords &&
+              routeCoords.length > 0
+            ) {
+              fitToRoute(
+                { latitude: location.latitude, longitude: location.longitude },
+                {
+                  latitude: selectedDestination.latitude,
+                  longitude: selectedDestination.longitude,
+                },
+                routeCoords,
+                true
+              );
+            }
+          }}
           userLocation={
             location
               ? { latitude: location.latitude, longitude: location.longitude }
@@ -2191,6 +2247,10 @@ function MapContent() {
           }
           isCalculatingRoute={routeService ? routeService.isCalculating : false}
           isOsrmAvailable={routeService ? routeService.isOsrmAvailable : true}
+          provider={routeService ? routeService.routingHost : undefined}
+          lastRequestTimings={
+            routeService ? routeService.lastRequestTimings : undefined
+          }
         />
 
         <POIDrawer
@@ -2214,21 +2274,36 @@ function MapContent() {
             if (coordinate) {
               // Animer vers les coordonnées du POI avec offset personnalisé ou ajustement par défaut
               setTimeout(() => {
-                if (offset && typeof offset.y === 'number') {
+                if (offset && typeof offset.y === "number") {
                   // Traiter offset.y comme la hauteur du drawer (en pixels)
-                  const adjustedCoord = getAdjustedCoordinate(coordinate, undefined, undefined, offset.y);
+                  const adjustedCoord = getAdjustedCoordinate(
+                    coordinate,
+                    undefined,
+                    undefined,
+                    offset.y
+                  );
                   animateToCoordinate(adjustedCoord);
                 } else {
                   // Utiliser l'ajustement par défaut (pas de drawer)
-                  const adjustedCoord = getAdjustedCoordinate(coordinate, undefined, undefined, 0);
+                  const adjustedCoord = getAdjustedCoordinate(
+                    coordinate,
+                    undefined,
+                    undefined,
+                    0
+                  );
                   animateToCoordinate(adjustedCoord);
                 }
               }, 100);
             } else {
               // Animer vers la position de l'utilisateur avec ajustement pour le drawer
               if (location) {
-                               setTimeout(() => {
-                  const adjustedCoord = getAdjustedCoordinate(location, undefined, undefined, 0);
+                setTimeout(() => {
+                  const adjustedCoord = getAdjustedCoordinate(
+                    location,
+                    undefined,
+                    undefined,
+                    0
+                  );
                   animateToCoordinate(adjustedCoord);
                 }, 100);
               }
@@ -2281,7 +2356,7 @@ function MapContent() {
         />
 
         <NavigationGuidance
-          visible={isNavigating || isMapNavigating}
+          visible={showNavigationGuidance || isNavigating || isMapNavigating}
           onStop={handleStopNavigation}
           onShowAllSteps={() => {
             if (
@@ -2303,6 +2378,18 @@ function MapContent() {
           showRecenterPrompt={showRecenterPrompt}
           onManualRecenter={manualRecenter}
           currentLocation={location}
+          routeRequest={pendingRouteRequest}
+          routeData={routeService ? routeService.lastRawRouteData : null}
+          // Forward provider/timings for display/debug
+          // (NavigationGuidance doesn't currently render these but they are available)
+          // provider passed to RouteDrawer already; NavigationGuidance can inspect routeData
+          onRouteReady={() => {
+            // NavigationGuidance signaled the route is ready. Clear pending request.
+            setPendingRouteRequest(null);
+            // Keep isNavigating true and ensure route is not cleared during navigation
+            setIsNavigating(true);
+            setIsRecalculatingRoute(false);
+          }}
         />
 
         <LocationInfoDrawer

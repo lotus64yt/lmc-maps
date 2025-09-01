@@ -8,7 +8,6 @@ interface NavigationArrowProps {
   width?: number;
   height?: number;
   styleTransform?: any;
-  isNavigating?: boolean;
   onClick?: () => void;
 }
 

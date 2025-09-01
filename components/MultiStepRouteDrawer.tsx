@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,10 +9,14 @@ import {
   Dimensions,
   Alert,
   TextInput,
+  LayoutAnimation,
+  UIManager,
+  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { RouteStep } from '@/types/RouteTypes';
 import ExpandableSearch from './ExpandableSearch';
+import AddStepModal from './AddStepModal';
 import POIDrawer from './POIDrawer';
 import { OverpassPOI } from '@/services/OverpassService';
 import { TravelTimeService, TravelTimeResult } from '@/services/TravelTimeService';
@@ -57,6 +61,7 @@ export default function MultiStepRouteDrawer({
   const [activeTransportMode, setActiveTransportMode] = useState('driving');
   const [stepSearch, setStepSearch] = useState('');
   const [stepName, setStepName] = useState('');
+  const [showAddStepSearch, setShowAddStepSearch] = useState(false);
   const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
   const [routeSegments, setRouteSegments] = useState<TravelTimeResult[]>([]);
   const [showModeComparison, setShowModeComparison] = useState(false);
@@ -259,9 +264,23 @@ export default function MultiStepRouteDrawer({
       [newSteps[currentIndex], newSteps[currentIndex + 1]] = 
       [newSteps[currentIndex + 1], newSteps[currentIndex]];
     }
-    
+    // Trigger a layout animation for the swap
+    try {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    } catch (e) {
+      // no-op
+    }
+
     onReorderSteps(newSteps);
   };
+
+  // Enable LayoutAnimation on Android
+  useEffect(() => {
+    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+      // @ts-ignore
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
 
   if (!visible) return null;
 
@@ -329,7 +348,7 @@ export default function MultiStepRouteDrawer({
 
             {/* Étapes intermédiaires */}
             {steps.map((step, index) => (
-              <View style={styles.stepItem}>
+              <View key={step.id ?? `step_${index}`} style={styles.stepItem}>
                 <View style={styles.stepMarker}>
                   <Text style={styles.stepNumber}>{index + 1}</Text>
                 </View>
@@ -494,14 +513,12 @@ export default function MultiStepRouteDrawer({
                   {/* Recherche d'adresse ou POI */}
                   <Text style={styles.fieldLabel}>Adresse ou point d'intérêt</Text>
                   <View style={styles.expandableSearchContainer}>
-                    <ExpandableSearch
-                      value={stepSearch}
-                      onChangeText={setStepSearch}
-                      onSelectLocation={handleAddStepLocation}
-                      onShowPOI={handleShowPOI}
-                      userLocation={userLocation}
-                      placeholder="Rechercher une adresse ou un POI..."
-                    />
+                    <TouchableOpacity
+                      style={styles.openSearchButton}
+                      onPress={() => setShowAddStepSearch(true)}
+                    >
+                      <Text style={styles.openSearchButtonText}>Ouvrir la recherche d'adresse / POI</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
                 
@@ -519,6 +536,18 @@ export default function MultiStepRouteDrawer({
             </View>
           </Modal>
         )}
+        {/* Render AddStepModal as top-level overlay so it appears above the 'Ajouter une étape' modal */}
+        {showAddStepSearch && (
+          <AddStepModal
+            visible={showAddStepSearch}
+            initialQuery={stepSearch}
+            onCancel={() => setShowAddStepSearch(false)}
+            onSelect={(r) => {
+              handleAddStepLocation(r);
+              setShowAddStepSearch(false);
+            }}
+          />
+        )}
 
         {/* POI Selection Drawer */}
         <POIDrawer
@@ -528,7 +557,8 @@ export default function MultiStepRouteDrawer({
           onClose={handlePOIDrawerClose}
           onSelectPOI={handlePOISelect}
           onShowRoute={(poi, transportMode) => {
-            // Gérer l'affichage de l'itinéraire vers le POI si nécessaire}}
+            // Gérer l'affichage de l'itinéraire vers le POI si nécessaire
+}}
           onRadiusChange={(radius) => {
             // Le rayon est géré automatiquement par le POIDrawer
           }}
@@ -961,5 +991,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 16,
     color: '#666',
+  },
+  openSearchButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#007AFF',
+    backgroundColor: '#FFF',
+    marginTop: 8,
+  },
+  openSearchButtonText: {
+    textAlign: 'center',
+    fontSize: 16,
+    color: '#007AFF',
   },
 });

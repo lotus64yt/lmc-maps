@@ -292,22 +292,32 @@ export function useMapControls() {
     lastMapInteraction.current = Date.now();
 
     if (isNavigating) {
-      // En mode navigation, afficher le prompt de recentrage
+      // En mode navigation, afficher le prompt de recentrage et désactiver le suivi
       setShowRecenterPrompt(true);
       setIsFollowingUser(false);
 
-      // Démarrer le timer de recentrage automatique (10 secondes)
+      // Démarrer le timer de recentrage automatique (5 secondes)
       if (recenterTimeout.current) {
         clearTimeout(recenterTimeout.current);
       }
 
       recenterTimeout.current = setTimeout(() => {
-        // Si l'utilisateur n'a pas interagi avec la carte pendant 10 secondes
-        if (Date.now() - lastMapInteraction.current >= 10000) {
+        // Si l'utilisateur n'a pas interagi avec la carte pendant 5 secondes
+        if (Date.now() - lastMapInteraction.current >= 5000) {
           setIsFollowingUser(true);
           setShowRecenterPrompt(false);
+          // If we have a last known follow position, animate back to it quickly
+          const lastPos = lastFollowPosition.current;
+          if (lastPos) {
+            // Quick animation to recenter
+            try {
+              animateToLocationLocked(lastPos.latitude, lastPos.longitude, 17, 300);
+            } catch (err) {
+              // ignore animation errors
+            }
+          }
         }
-      }, 10000);
+      }, 5000);
     } else {
       // Comportement normal hors navigation
       if (isFollowingUser) {
@@ -322,9 +332,20 @@ export function useMapControls() {
     setIsFollowingUser(true);
     setShowRecenterPrompt(false);
 
+    // Cancel any pending auto-recenter
     if (recenterTimeout.current) {
       clearTimeout(recenterTimeout.current);
       recenterTimeout.current = null;
+    }
+
+    // Animate immediately to the last known follow position if available
+    const lastPos = lastFollowPosition.current;
+    if (lastPos) {
+      try {
+        animateToLocationLocked(lastPos.latitude, lastPos.longitude, 17, 300);
+      } catch (err) {
+        // ignore
+      }
     }
   };
 
@@ -355,14 +376,15 @@ export function useMapControls() {
       longitude: number;
     },
     zoomLevel: number = 15,
-    pitch?: number
+    pitch?: number,
+    duration: number = 1000
   ) => {
     // Déléguer à animateToLocationLocked (gère le verrouillage interne)
     animateToLocationLocked(
       coordinate.latitude,
       coordinate.longitude,
       zoomLevel,
-      1000,
+      duration,
       pitch
     );
   };

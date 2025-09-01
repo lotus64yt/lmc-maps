@@ -477,7 +477,8 @@ class NavigationService {
     try {
       const osrmMode =
         mode === "bicycling" ? "bike" : mode === "walking" ? "foot" : "driving";
-      const url = `https://router.project-osrm.org/route/v1/${osrmMode}/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true`;
+      const url = `https://routing.openstreetmap.de/routed-car/route/v1/${osrmMode}/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true&alternatives=true`;
+      console.log(url)
       const response = await fetch(url);
       const data = await response.json();
 

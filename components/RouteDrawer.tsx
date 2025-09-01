@@ -38,14 +38,19 @@ interface RouteDrawerProps {
   userLocation: { latitude: number; longitude: number } | null;
   isCalculatingRoute?: boolean;
   isOsrmAvailable?: boolean;
+  provider?: string;
+  // Debug timings from the route service
+  lastRequestTimings?: { host: string; durationMs: number; success: boolean; endpoint?: string }[];
   // Timestamp (ms) updated by parent when the user interacts with the map
   userInteractionAt?: number;
   // Notifie le parent quand le drawer passe en mode expandé / réduit
   onExpandChange?: (isExpanded: boolean) => void;
+  onOpened?: () => void;
 }
 
 const { height: screenHeight } = Dimensions.get("window");
-const DRAWER_HEIGHT = screenHeight * 0.45; // Réduit de 0.6 à 0.45
+// Make the drawer large enough to expand almost full-screen while keeping a small top margin
+const DRAWER_HEIGHT = screenHeight * 0.85; // was 0.45, increased to allow full expansion
 const PEEK_HEIGHT = 120;
 const SEARCH_BAR_HEIGHT = 100; // Hauteur approximative de la barre de recherche + marges
 
@@ -58,9 +63,13 @@ export default function RouteDrawer({
   userLocation,
   isCalculatingRoute = false,
   isOsrmAvailable = true,
+  provider,
+  lastRequestTimings,
   userInteractionAt,
   onExpandChange,
+  onOpened,
 }: RouteDrawerProps) {
+  const isDebugMode = typeof __DEV__ !== 'undefined' ? __DEV__ : false;
   const translateY = useRef(new Animated.Value(DRAWER_HEIGHT)).current;
   const handleBounce = useRef(new Animated.Value(0)).current;
   const [selectedTransport, setSelectedTransport] = React.useState("driving");
@@ -164,7 +173,7 @@ export default function RouteDrawer({
     else if (mode === "bicycling") profile = "bike";
     else if (mode === "transit") return "-- min"; // OSRM ne gère pas le transit
 
-    const url = `https://router.project-osrm.org/route/v1/${profile}/${userLocation.longitude},${userLocation.latitude};${destination.longitude},${destination.latitude}?overview=false`;
+  const url = `https://routing.openstreetmap.de/routed-car/route/v1/${profile}/${userLocation.longitude},${userLocation.latitude};${destination.longitude},${destination.latitude}?overview=false&alternatives=true&steps=true`;
     try {
       const res = await fetch(url);
       const data = await res.json();
@@ -243,6 +252,8 @@ export default function RouteDrawer({
     }).start(() => {
       setIsExpanded(false);
       if (onExpandChange) onExpandChange(false);
+  // Notify parent that the drawer has finished opening (useful to adjust camera)
+  if (typeof onOpened === 'function') onOpened();
     });
     resetInactivityTimer();
   };
@@ -258,6 +269,7 @@ export default function RouteDrawer({
       if (onExpandChange) onExpandChange(true);
       // Stop any running inactivity hint animations when user expands
       stopInactivityAnimations();
+  if (typeof onOpened === 'function') onOpened();
     });
     resetInactivityTimer();
   };
@@ -321,7 +333,7 @@ export default function RouteDrawer({
     }
   }
 
-  // Idle hint animation (bounce handle) after 10s of inactivity
+  // Idle hint animation (bounce handle) after 5s of inactivity
   const startInactivityTimer = () => {
     clearInactivityTimer();
     inactivityTimerRef.current = setTimeout(() => {
@@ -359,7 +371,7 @@ export default function RouteDrawer({
         inactivityAnimRef.current = loop;
         loop.start();
       }
-    }, 10000); // 10 seconds
+  }, 5000); // 5 seconds
   };
 
   const clearInactivityTimer = () => {
@@ -377,8 +389,14 @@ export default function RouteDrawer({
   useEffect(() => {
     if (visible) {
       openDrawer();
-      // Afficher le trajet par défaut (voiture) quand le drawer s'ouvre
-      if (onTransportModeChange && destination) {
+      // Afficher le trajet par défaut (voiture) quand le drawer s'ouvre,
+      // sauf si un calcul est déjà en cours (évite les doubles requêtes).
+      // Le parent peut aussi avoir déjà lancé le calcul avant d'ouvrir le drawer.
+      if (
+        onTransportModeChange &&
+        destination &&
+        !isCalculatingRoute // do not trigger a new calculation if already running
+      ) {
         onTransportModeChange("driving", destination);
       }
     } else {
@@ -388,6 +406,9 @@ export default function RouteDrawer({
     if (visible) startInactivityTimer();
     else clearInactivityTimer();
   }, [visible]);
+
+  // small helper to display provider label
+  const providerLabel = provider ? `Provider: ${provider.replace(/^https?:\/\//, '')}` : null;
 
   // If parent signals user interaction elsewhere (map), reset inactivity timer
   useEffect(() => {
@@ -485,6 +506,20 @@ export default function RouteDrawer({
               <Text style={styles.destinationSubtitle} numberOfLines={2}>
                 {destination.subtitle}
               </Text>
+              {providerLabel && (
+                <Text style={styles.providerLabel} numberOfLines={1}>
+                  {providerLabel}
+                </Text>
+              )}
+              {isDebugMode && lastRequestTimings && lastRequestTimings.length > 0 && (
+                <View style={styles.timingsContainer}>
+                  {lastRequestTimings.map((t, i) => (
+                    <Text key={i} style={styles.timingText} numberOfLines={1}>
+                      {`${t.host.replace(/^https?:\/\//, '')} — ${t.durationMs}ms ${t.success ? 'OK' : 'ERR'}`}
+                    </Text>
+                  ))}
+                </View>
+              )}
             </View>
             {/* Bouton de fermeture */}
             <TouchableOpacity
@@ -674,6 +709,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#666",
     lineHeight: 20,
+  },
+  providerLabel: {
+    fontSize: 12,
+    color: "#999",
+    marginTop: 6,
+  },
+  timingsContainer: {
+    marginTop: 6,
+  },
+  timingText: {
+    fontSize: 12,
+    color: '#666',
   },
   transportSection: {
     marginBottom: 24,

@@ -230,9 +230,10 @@ export default function ExpandableSearch({
   const expandedInputRef = useRef<TextInput | null>(null);
 
   // Charger l'historique au démarrage
+  // Depend on primitive lat/lon to avoid re-running when parent recreates userLocation object
   useEffect(() => {
     loadHistory();
-  }, [userLocation]);
+  }, [userLocation?.latitude, userLocation?.longitude]);
 
   // Fonction pour charger l'historique
   const loadHistory = async () => {
