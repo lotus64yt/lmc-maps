@@ -7,13 +7,6 @@
                     "RNMapboxMapsImpl": "mapbox",
                     "RNMapboxMapsDownloadToken": ""
                 }
-            ],
-            [
-                "expo-notifications",
-                {
-                    "icon": "./assets/favicon.png",
-                    "color": "#007AFF"
-                }
             ]
         ],
         "name": "LMC Maps DEV",

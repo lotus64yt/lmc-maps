@@ -33,6 +33,8 @@ const SearchResultItem = memo(
     onShowRoute,
     onAddNavigationStop,
     onAddStep,
+  onToggleFavorite,
+  isFavorite,
     isNavigating,
     getCategoryColor,
     onDeleteHistoryItem,
@@ -41,7 +43,9 @@ const SearchResultItem = memo(
     onSelectResult: (result: SearchResult) => void;
     onShowRoute?: (result: SearchResult) => void;
     onAddNavigationStop?: (result: SearchResult) => void;
-    onAddStep?: (result: SearchResult) => void;
+  onAddStep?: (result: SearchResult) => void;
+  onToggleFavorite?: (result: SearchResult) => void;
+  isFavorite?: (id: string) => boolean;
     isNavigating: boolean;
     getCategoryColor: (type: AmenityType) => string;
     onDeleteHistoryItem: (id: string) => void;
@@ -111,7 +115,7 @@ const SearchResultItem = memo(
               {item.subtitle}
             </Text>
           </View>
-          {(item.type === "nominatim" || item.type === "history") &&
+          {(item.type === "nominatim" || item.type === "history" || item.type === 'overpass') &&
             onShowRoute &&
             !isNavigating && (
               <TouchableOpacity
@@ -163,6 +167,12 @@ const SearchResultItem = memo(
               <Icon name="close" size={16} color="#999" />
             </TouchableOpacity>
           )}
+          {/* Favorite toggle */}
+          {(item.type === 'nominatim' || item.type === 'history' || item.type === 'overpass') && onToggleFavorite && (
+            <TouchableOpacity style={styles.favoriteButton} onPress={() => onToggleFavorite(item)}>
+              <Icon name={isFavorite && isFavorite(item.id) ? 'star' : 'star-border'} size={20} color="#FFB300" />
+            </TouchableOpacity>
+          )}
         </View>
       </TouchableOpacity>
     );
@@ -194,6 +204,7 @@ interface ExpandableSearchProps {
   onSearchNearbyPOI?: (amenityType: string) => void;
   autoExpand?: boolean; // Nouveau prop pour auto-expansion
   onClose?: () => void; // Nouveau prop pour fermer le modal
+  onResumeLastTrip?: () => void; // Ouvrir le dialog / reprendre le dernier trajet
   onCameraMove?: (coordinate: { latitude: number; longitude: number } | null, offset?: { x: number; y: number }) => void;
 }
 
@@ -211,6 +222,7 @@ export default function ExpandableSearch({
   onSearchNearbyPOI,
   autoExpand = false,
   onClose,
+  onResumeLastTrip,
   onCameraMove,
 }: ExpandableSearchProps) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -220,7 +232,7 @@ export default function ExpandableSearch({
   const animatedRotationsRef = useRef<Record<string, Animated.Value>>({});
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [searchMode, setSearchMode] = useState<"address" | "poi">("address");
+  const [searchMode, setSearchMode] = useState<"address" | "poi" | "recent">("address");
   const [shouldSearch, setShouldSearch] = useState(false);
   const [historyItems, setHistoryItems] = useState<SearchResult[]>([]);
   const searchTimeout = useRef<NodeJS.Timeout>();
@@ -1034,6 +1046,31 @@ export default function ExpandableSearch({
               </Text>
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={[
+                styles.modeButton,
+                searchMode === "recent" && styles.modeButtonActive,
+              ]}
+              onPress={() => {
+                Vibration.vibrate(50);
+                setSearchMode("recent");
+              }}
+            >
+              <Icon
+                name="history"
+                size={20}
+                color={searchMode === "recent" ? "#fff" : "#666"}
+              />
+              <Text
+                style={[
+                  styles.modeText,
+                  searchMode === "recent" && styles.modeTextActive,
+                ]}
+              >
+                Trajets récents
+              </Text>
+            </TouchableOpacity>
+
             {/* Bouton de recherche manuelle */}
             <TouchableOpacity
               style={styles.manualSearchButton}
@@ -1133,9 +1170,11 @@ export default function ExpandableSearch({
                 data={
                   searchMode === "poi"
                     ? searchResults
+                    : searchMode === "recent"
+                    ? historyItems
                     : value.trim().length > 2
                     ? searchResults
-                    : historyItems
+                    : []
                 }
                 renderItem={renderSearchResult}
                 keyExtractor={keyExtractor}
@@ -1148,13 +1187,11 @@ export default function ExpandableSearch({
                 windowSize={5}
                 getItemLayout={undefined}
                 ListHeaderComponent={
-                  searchMode === "address" &&
-                  value.trim().length <= 2 &&
-                  historyItems.length > 0 ? (
+                  searchMode === "recent" ? (
                     <View style={styles.historyHeader}>
                       <Icon name="history" size={16} color="#666" />
                       <Text style={styles.historyHeaderText}>
-                        Recherches récentes
+                        Trajets récents
                       </Text>
                       <TouchableOpacity
                         style={styles.clearHistoryButton}
@@ -1165,6 +1202,15 @@ export default function ExpandableSearch({
                         }}
                       >
                         <Text style={styles.clearHistoryText}>Effacer</Text>
+                      </TouchableOpacity>
+                      {/* Bouton pour reprendre le dernier itinéraire */}
+                      <TouchableOpacity
+                        style={[styles.clearHistoryButton, { marginLeft: 8, backgroundColor: '#28A745' }]}
+                        onPress={() => {
+                          if (typeof onResumeLastTrip === 'function') onResumeLastTrip();
+                        }}
+                      >
+                        <Text style={styles.clearHistoryText}>Reprendre le dernier itinéraire</Text>
                       </TouchableOpacity>
                     </View>
                   ) : searchMode === "poi" && value.trim().length === 0 ? (
@@ -1478,5 +1524,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
     color: "#333",
+  },
+  favoriteButton: {
+    padding: 8,
+    marginLeft: 6,
   },
 });

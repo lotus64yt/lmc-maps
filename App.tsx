@@ -10,6 +10,8 @@ import {
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import * as Location from "expo-location";
+import * as DocumentPicker from "expo-document-picker";
+import { parseGPX } from "./utils/gpxParser";
 import MapContainer from "./components/MapContainer";
 import ControlButtons from "./components/ControlButtons";
 import ExpandableSearch from "./components/ExpandableSearch";
@@ -63,6 +65,10 @@ function MapContent() {
   const [showMultiStepDrawer, setShowMultiStepDrawer] = useState(false);
   const [routeSteps, setRouteSteps] = useState<RouteStep[]>([]);
   const [multiStepRouteCoords, setMultiStepRouteCoords] = useState<any[]>([]);
+  // Imported GPX preview coordinates (do not override route service data)
+  const [importedRouteCoords, setImportedRouteCoords] = useState<
+    { latitude: number; longitude: number }[]
+  >([]);
   const [totalDistance, setTotalDistance] = useState<number>(0);
   const [totalDuration, setTotalDuration] = useState<number>(0);
 
@@ -1440,7 +1446,7 @@ function MapContent() {
           .map((wp) => `${wp.longitude},${wp.latitude}`)
           .join(";");
         const osrmMode = "driving"; // Mode par défaut pour multi-étapes
-  const url = `https://routing.openstreetmap.de/routed-car/route/v1/${osrmMode}/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=true`;
+        const url = `https://routing.openstreetmap.de/routed-car/route/v1/${osrmMode}/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=true`;
 
         const response = await fetch(url);
         const data = await response.json();
@@ -2046,6 +2052,7 @@ function MapContent() {
           onShowRoute={handleShowRoute}
           onShowPOI={handleShowPOI}
           onAddStep={handleAddStep}
+          onResumeLastTrip={() => setResumeModalVisible(true)}
           userLocation={
             location
               ? { latitude: location.latitude, longitude: location.longitude }
@@ -2103,6 +2110,7 @@ function MapContent() {
           onShowRoute={handleShowRoute}
           onShowPOI={handleShowPOI}
           onAddStep={handleAddStep}
+          onResumeLastTrip={() => setResumeModalVisible(true)}
           userLocation={
             location
               ? { latitude: location.latitude, longitude: location.longitude }
@@ -2162,6 +2170,49 @@ function MapContent() {
         <TouchableOpacity
           style={styles.multiStepButton}
           onPress={() => setShowMultiStepDrawer(true)}
+          onLongPress={async () => {
+            // Hidden GPX import
+            try {
+              const res = await DocumentPicker.getDocumentAsync({
+                type: "*/*",
+              });
+              if (!res.canceled && res.assets && res.assets.length > 0) {
+                const asset = res.assets[0];
+                if (
+                  asset.uri &&
+                  asset.name &&
+                  asset.name.toLowerCase().endsWith(".gpx")
+                ) {
+                  const resp = await fetch(asset.uri);
+                  const text = await resp.text();
+                  const parsed = parseGPX(text);
+                  const first =
+                    parsed.waypoints.length > 0
+                      ? parsed.waypoints[0]
+                      : parsed.track[0];
+                  if (first) {
+                    setSelectedDestination({
+                      title: first.name || "Imported GPX",
+                      subtitle: "",
+                      latitude: first.latitude,
+                      longitude: first.longitude,
+                    });
+                    if (parsed.track && parsed.track.length > 0) {
+                      setImportedRouteCoords(
+                        parsed.track.map((p) => ({
+                          latitude: p.latitude,
+                          longitude: p.longitude,
+                        }))
+                      );
+                    }
+                    setShowRouteDrawer(true);
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn("GPX import failed", e);
+            }
+          }}
         >
           <MaterialIcons name="route" size={20} color="#FFF" />
           <Text style={styles.multiStepButtonText}>
@@ -2176,7 +2227,11 @@ function MapContent() {
           location={location}
           headingAnim={headingAnim}
           destination={destination}
-          routeCoords={routeCoords}
+          routeCoords={
+            importedRouteCoords && importedRouteCoords.length > 0
+              ? importedRouteCoords
+              : routeCoords
+          }
           onLongPress={handleMapPress}
           compassMode={compassMode}
           currentHeading={currentHeading}
@@ -2223,11 +2278,15 @@ function MapContent() {
           onTransportModeChange={handleTransportModeChange}
           onOpened={() => {
             // Re-apply fitToRoute once drawer animation completed so camera accounts for final drawer size
+            const activeCoords =
+              importedRouteCoords && importedRouteCoords.length > 0
+                ? importedRouteCoords
+                : routeCoords;
             if (
               location &&
               selectedDestination &&
-              routeCoords &&
-              routeCoords.length > 0
+              activeCoords &&
+              activeCoords.length > 0
             ) {
               fitToRoute(
                 { latitude: location.latitude, longitude: location.longitude },
@@ -2235,7 +2294,7 @@ function MapContent() {
                   latitude: selectedDestination.latitude,
                   longitude: selectedDestination.longitude,
                 },
-                routeCoords,
+                activeCoords,
                 true
               );
             }

@@ -611,7 +611,8 @@ export default function MapContainer({
           ref={mapRef}
           style={styles.map}
           styleJSON={JSON.stringify(libertyStyle)}
-          onPress={handleMapPress}
+          // Use onLongPress for location selection; simple taps no longer open the LocationInfoDrawer
+          onLongPress={handleMapPress}
           onTouchStart={onMapPanDrag}
           onDidFinishLoadingMap={handleMapReady}
           onCameraChanged={onCameraChanged}
