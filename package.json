@@ -17,7 +17,7 @@
     "@rnmapbox/maps": "^10.1.40",
     "expo": "~52.0.41",
     "expo-dev-client": "~5.0.20",
-    "expo-document-picker": "^13.1.6",
+    "expo-document-picker": "~13.0.3",
     "expo-location": "~18.0.10",
     "expo-modules-core": "~2.2.3",
     "expo-notifications": "~0.29.14",

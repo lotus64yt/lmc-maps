@@ -8,6 +8,7 @@ interface ControlButtonsProps {
   compassMode: 'north' | 'heading';
   isFollowingUser?: boolean;
   isNavigating?: boolean;
+  onOpenFavorites?: () => void;
 }
 
 export default function ControlButtons({ 
@@ -16,6 +17,7 @@ export default function ControlButtons({
   compassMode,
   isFollowingUser = false,
   isNavigating = false
+  , onOpenFavorites
 }: ControlButtonsProps) {
   const handleRecenterPress = () => {
     Vibration.vibrate(50);
@@ -46,7 +48,7 @@ export default function ControlButtons({
         />
       </TouchableOpacity>
       
-      <TouchableOpacity onPress={handleCompassToggle} style={[
+      {/* <TouchableOpacity onPress={handleCompassToggle} style={[
         styles.button,
         { backgroundColor: compassMode === 'heading' ? '#007AFF' : 'white' }
       ]}>
@@ -55,7 +57,13 @@ export default function ControlButtons({
           size={24} 
           color={compassMode === 'heading' ? 'white' : '#333'} 
         />
-      </TouchableOpacity>
+      </TouchableOpacity> */}
+      {/* Favorites button */}
+      {onOpenFavorites && (
+        <TouchableOpacity onPress={() => { Vibration.vibrate(50); onOpenFavorites(); }} style={styles.button}>
+          <MaterialIcons name="star" size={24} color="#FFB300" />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }

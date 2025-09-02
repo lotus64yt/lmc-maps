@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="8dp">
+
+    <TextView android:id="@+id/widget_planner_title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Planificateur express" android:textStyle="bold" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
+        <TextView android:id="@+id/widget_planner_from" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Départ: Maison" />
+        <TextView android:id="@+id/widget_planner_to" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Arrivée: Dernière" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="8dp">
+        <Button android:id="@+id/widget_planner_today" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Aujourd'hui" />
+        <Button android:id="@+id/widget_planner_tomorrow" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Demain matin" />
+    </LinearLayout>
+</LinearLayout>

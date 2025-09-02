@@ -20,6 +20,7 @@ import POIDrawer from "./components/POIDrawer";
 import MultiStepRouteDrawer from "./components/MultiStepRouteDrawer";
 import NavigationGuidance from "./components/NavigationGuidance";
 import LocationInfoDrawer from "./components/LocationInfoDrawer";
+import FavoritesDrawer from './components/FavoritesDrawer';
 import NavigationStepDrawer from "./components/NavigationStepDrawer";
 import ArrivalDrawer from "./components/ArrivalDrawer";
 import ParkingDrawer from "./components/ParkingDrawer";
@@ -50,6 +51,7 @@ function MapContent() {
 
   const [search, setSearch] = useState("");
   const [showRouteDrawer, setShowRouteDrawer] = useState(false);
+  const [showFavorites, setShowFavorites] = useState(false);
   const [selectedDestination, setSelectedDestination] = useState<any>(null);
 
   // États pour les POI
@@ -2268,6 +2270,7 @@ function MapContent() {
           compassMode={compassMode}
           isFollowingUser={isFollowingUser}
           isNavigating={isNavigating}
+          onOpenFavorites={() => setShowFavorites(true)}
         />
 
         <RouteDrawer
@@ -2383,6 +2386,24 @@ function MapContent() {
             };
             handleAddNavigationStop(result);
             setShowPOIDrawer(false); // Fermer le drawer après ajout
+          }}
+        />
+
+        <FavoritesDrawer
+          visible={showFavorites}
+          onClose={() => setShowFavorites(false)}
+          onSelect={(item) => {
+            setShowFavorites(false);
+            // Simuler la sélection pour démarrer la navigation ou centrer la carte
+            const dest = {
+              id: item.id,
+              title: item.title,
+              subtitle: item.subtitle || '',
+              latitude: item.latitude,
+              longitude: item.longitude,
+              type: item.type === 'overpass' ? 'overpass' : 'nominatim',
+            };
+            handleSelectLocation(dest as any);
           }}
         />
 

@@ -15,6 +15,7 @@ import {
   Clipboard
 } from "react-native";
 import { MaterialIcons as Icon } from '@expo/vector-icons';
+import { FavoritesService } from '../services/FavoritesService';
 import { SpeedLimitService } from '../services/SpeedLimitService';
 import * as Location from 'expo-location';
 import { NominatimService, NominatimReverseResult } from '../services/NominatimService';
@@ -62,6 +63,7 @@ export default function LocationInfoDrawer({
   const [error, setError] = useState<string | null>(null);
   const [showRouteAlert, setShowRouteAlert] = useState(false);
   const [showCopyModal, setShowCopyModal] = useState(false);
+  const [isFavorite, setIsFavorite] = useState<boolean>(false);
   // Vitesse et limite de vitesse
   const [currentSpeed, setCurrentSpeed] = useState<number | null>(null);
   const [speedLimit, setSpeedLimit] = useState<string | null>(null);
@@ -315,6 +317,12 @@ continue;
   useEffect(() => {
     if (coordinate) {
       fetchLocationInfo(coordinate);
+      // check favorite
+      (async () => {
+        const id = `loc_${coordinate.latitude.toFixed(6)}_${coordinate.longitude.toFixed(6)}`;
+        const fav = await FavoritesService.isFavorite(id);
+        setIsFavorite(fav);
+      })();
       
       // Afficher le point sur la carte
       if (onShowLocationPoint) {
@@ -556,13 +564,35 @@ continue;
             )}
 
             {/* Bouton pour lancer l'itinéraire */}
-            <TouchableOpacity 
-              style={styles.routeButton}
-              onPress={handleStartRoutePress}
-            >
-              <Icon name="directions" size={24} color="white" />
-              <Text style={styles.routeButtonText}>Itinéraire vers ce lieu</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+              <TouchableOpacity 
+                style={[styles.routeButton, { flex: 1 }]}
+                onPress={handleStartRoutePress}
+              >
+                <Icon name="directions" size={24} color="white" />
+                <Text style={styles.routeButtonText}>Itinéraire vers ce lieu</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.routeButton, { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#E0E0E0' }]}
+                onPress={async () => {
+                  if (!coordinate) return;
+                  const id = `loc_${coordinate.latitude.toFixed(6)}_${coordinate.longitude.toFixed(6)}`;
+                  const favItem = {
+                    id,
+                    title: locationInfo ? getLocationTitle(locationInfo) : formatCoordinatesDD(coordinate.latitude, coordinate.longitude),
+                    subtitle: locationInfo ? locationInfo.display_name : '',
+                    latitude: coordinate.latitude,
+                    longitude: coordinate.longitude,
+                    type: 'nominatim',
+                  };
+                  const newState = await FavoritesService.toggleFavorite(favItem);
+                  setIsFavorite(newState);
+                }}
+              >
+                <Icon name={isFavorite ? 'star' : 'star-border'} size={22} color="#FFB300" />
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </ScrollView>

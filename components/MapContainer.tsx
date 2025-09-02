@@ -122,6 +122,8 @@ export default function MapContainer({
     longitude: number;
     timestamp: number;
   } | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const touchMovedRef = useRef(false);
 
   // Debug log pour le heading
   useEffect(() => {
@@ -591,10 +593,104 @@ export default function MapContainer({
   }
 
   // Gestion du clic sur la carte pour ouvrir le RouteDrawer
-  const handleMapPress = (feature: any) => {
-    if (feature.geometry && feature.geometry.coordinates) {
-      const [longitude, latitude] = feature.geometry.coordinates;
-      onLongPress({ latitude, longitude });
+  const handleMapPress = async (event: any) => {
+    // Mapbox events can come in several shapes depending on platform/version.
+    // Try a few common locations for coordinates.
+    try {
+      let coords: number[] | null = null;
+
+      if (event?.geometry?.coordinates) {
+        coords = event.geometry.coordinates;
+      } else if (Array.isArray(event?.coordinates)) {
+        coords = event.coordinates as number[];
+      } else if (event?.nativeEvent?.coordinates) {
+        coords = event.nativeEvent.coordinates;
+      } else if (event?.features && Array.isArray(event.features) && event.features[0]?.geometry?.coordinates) {
+        coords = event.features[0].geometry.coordinates;
+      } else if (event?.properties?.coordinate) {
+        const c = event.properties.coordinate;
+        if (c && typeof c.longitude === 'number' && typeof c.latitude === 'number') {
+          onLongPress({ latitude: c.latitude, longitude: c.longitude });
+          return;
+        }
+      }
+
+      // If we couldn't find coords in the event, fallback to map center if available
+      if (!coords && mapRef && (mapRef as any).current && typeof (mapRef as any).current.getCenter === 'function') {
+        try {
+          const center = await (mapRef as any).current.getCenter();
+          if (Array.isArray(center) && center.length >= 2) {
+            coords = center as number[]; // [lon, lat]
+          }
+        } catch (e) {
+          // ignore fallback failure
+        }
+      }
+
+      if (coords && coords.length >= 2) {
+        const [longitude, latitude] = coords;
+        console.debug('handleMapPress coords', longitude, latitude);
+        onLongPress({ latitude, longitude });
+        return;
+      }
+
+      console.warn('handleMapPress: unable to determine coordinates from event', event);
+    } catch (e) {
+      console.warn('handleMapPress error', e);
+    }
+  };
+
+  // Touch handlers to detect small taps that slightly move the map
+  const handleTouchStart = (e: any) => {
+    try {
+      const ne = e?.nativeEvent;
+      if (ne && typeof ne.pageX === 'number' && typeof ne.pageY === 'number') {
+        touchStartRef.current = { x: ne.pageX, y: ne.pageY };
+        touchMovedRef.current = false;
+      }
+      // also call external pan drag handler if provided
+      if (onMapPanDrag) onMapPanDrag();
+    } catch (err) {
+      // ignore
+    }
+  };
+
+  const handleTouchMove = (e: any) => {
+    try {
+      const ne = e?.nativeEvent;
+      if (!ne || !touchStartRef.current) return;
+      const dx = Math.abs(ne.pageX - touchStartRef.current.x);
+      const dy = Math.abs(ne.pageY - touchStartRef.current.y);
+      if (dx > 6 || dy > 6) {
+        touchMovedRef.current = true;
+      }
+    } catch (err) {
+      // ignore
+    }
+  };
+
+  const handleTouchEnd = async (e: any) => {
+    try {
+      // If touch did not move beyond threshold, consider it a tap
+      if (!touchMovedRef.current) {
+        // Try to extract coords from event first
+        if (e?.nativeEvent?.coordinates) {
+          await handleMapPress(e);
+          return;
+        }
+
+        // Fallback to center coordinate
+        if (mapRef && (mapRef as any).current && typeof (mapRef as any).current.getCenter === 'function') {
+          const center = await (mapRef as any).current.getCenter();
+          if (Array.isArray(center) && center.length >= 2) {
+            const [longitude, latitude] = center as number[];
+            onLongPress({ latitude, longitude });
+            return;
+          }
+        }
+      }
+    } catch (err) {
+      // ignore
     }
   };
 
@@ -611,9 +707,12 @@ export default function MapContainer({
           ref={mapRef}
           style={styles.map}
           styleJSON={JSON.stringify(libertyStyle)}
-          // Use onLongPress for location selection; simple taps no longer open the LocationInfoDrawer
+          // Use onLongPress for location selection; also attach onPress to cover platform differences
           onLongPress={handleMapPress}
-          onTouchStart={onMapPanDrag}
+          onPress={handleMapPress}
+          onTouchStart={(e) => { handleTouchStart(e); if (onMapPanDrag) onMapPanDrag(); }}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={(e) => { handleTouchEnd(e); }}
           onDidFinishLoadingMap={handleMapReady}
           onCameraChanged={onCameraChanged}
           logoEnabled={false}

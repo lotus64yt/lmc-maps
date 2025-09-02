@@ -12,6 +12,7 @@ import {
 import Slider from '@react-native-community/slider';
 import { MaterialIcons } from '@expo/vector-icons';
 import { OverpassPOI, OverpassService } from '@/services/OverpassService';
+import { FavoritesService } from '@/services/FavoritesService';
 import { formatDistance, formatDuration } from '@/utils/formatUtils';
 // import { debugLog } from '@/utils/debugUtils';
 
@@ -164,6 +165,39 @@ export default function POIDrawer({
     ]).start();
 
     setExpandedCategories((prev) => ({ ...prev, [type]: !isExpanded }));
+  };
+
+  // Favorites handling
+  const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
+
+  const loadFavorites = async () => {
+    try {
+      const favs = await FavoritesService.listFavorites();
+      setFavoriteIds(favs.map(f => f.id));
+    } catch (e) {
+      console.error('POIDrawer.loadFavorites', e);
+    }
+  };
+
+  React.useEffect(() => {
+    loadFavorites();
+  }, []);
+
+  const toggleFavoriteForPOI = async (poi: OverpassPOI) => {
+    try {
+      const favItem = {
+        id: poi.id,
+        title: OverpassService.formatPOIName(poi),
+        subtitle: OverpassService.formatPOIAddress(poi),
+        latitude: poi.lat,
+        longitude: poi.lon,
+        type: 'overpass',
+      };
+      await FavoritesService.toggleFavorite(favItem);
+      await loadFavorites();
+    } catch (e) {
+      console.error('toggleFavoriteForPOI', e);
+    }
   };
 
   // Rechercher les POI (une seule fois avec un rayon large)
@@ -557,6 +591,9 @@ export default function POIDrawer({
                                       <Text style={styles.poiDistance}>
                                         {formatDistance(poi.distance || 0)}
                                       </Text>
+                                      <TouchableOpacity style={styles.favoriteSmall} onPress={() => toggleFavoriteForPOI(poi)}>
+                                        <MaterialIcons name={favoriteIds.includes(poi.id) ? 'star' : 'star-border'} size={18} color="#FFB300" />
+                                      </TouchableOpacity>
                                     </TouchableOpacity>
                                   ))}
                                 </View>
@@ -589,6 +626,9 @@ export default function POIDrawer({
                                 {poi.tags.opening_hours}
                               </Text>
                             )}
+                            <TouchableOpacity style={styles.favoriteSmall} onPress={() => toggleFavoriteForPOI(poi)}>
+                              <MaterialIcons name={favoriteIds.includes(poi.id) ? 'star' : 'star-border'} size={20} color="#FFB300" />
+                            </TouchableOpacity>
                           </TouchableOpacity>
                         ))
                       )}
@@ -622,9 +662,14 @@ export default function POIDrawer({
               <Text style={styles.sectionTitle}>Informations détaillées</Text>
               
               <View style={styles.poiDetails}>
-                <Text style={styles.detailTitle}>
-                  {OverpassService.formatPOIName(selectedPOI)}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={styles.detailTitle}>
+                    {OverpassService.formatPOIName(selectedPOI)}
+                  </Text>
+                  <TouchableOpacity style={{ marginLeft: 8 }} onPress={() => toggleFavoriteForPOI(selectedPOI)}>
+                    <MaterialIcons name={favoriteIds.includes(selectedPOI.id) ? 'star' : 'star-border'} size={22} color="#FFB300" />
+                  </TouchableOpacity>
+                </View>
                 
                 {selectedPOI.tags.cuisine && (
                   <Text style={styles.detailText}>
@@ -977,6 +1022,13 @@ const styles = StyleSheet.create({
   },
   activeTransportLabel: {
     color: '#FFF',
+  },
+  favoriteSmall: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    padding: 6,
+    backgroundColor: 'transparent',
   },
   routeButton: {
     flexDirection: 'row',

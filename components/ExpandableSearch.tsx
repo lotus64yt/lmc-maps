@@ -11,12 +11,17 @@ import {
   SafeAreaView,
   Modal,
   Vibration,
+  LayoutAnimation,
+  UIManager,
+  Platform,
+  useWindowDimensions,
 } from "react-native";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
 import {
   NominatimService,
   NominatimSearchResult,
 } from "../services/NominatimService";
+import { FavoritesService } from '../services/FavoritesService';
 import {
   RouteHistoryService,
 } from "../services/RouteHistoryService";
@@ -225,12 +230,14 @@ export default function ExpandableSearch({
   onResumeLastTrip,
   onCameraMove,
 }: ExpandableSearchProps) {
+  const { width: windowWidth } = useWindowDimensions();
   const [isExpanded, setIsExpanded] = useState(false);
   // Accordion state for POI categories (collapsed by default)
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const animatedHeightsRef = useRef<Record<string, Animated.Value>>({});
   const animatedRotationsRef = useRef<Record<string, Animated.Value>>({});
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchMode, setSearchMode] = useState<"address" | "poi" | "recent">("address");
   const [shouldSearch, setShouldSearch] = useState(false);
@@ -239,13 +246,43 @@ export default function ExpandableSearch({
 
   // Animation pour l'expansion
   const expandAnim = useRef(new Animated.Value(0)).current;
+  // Animate list appearance
+  const listAnim = useRef(new Animated.Value(0)).current;
   const expandedInputRef = useRef<TextInput | null>(null);
 
   // Charger l'historique au démarrage
   // Depend on primitive lat/lon to avoid re-running when parent recreates userLocation object
   useEffect(() => {
     loadHistory();
+    loadFavorites();
   }, [userLocation?.latitude, userLocation?.longitude]);
+
+  const loadFavorites = async () => {
+    try {
+      const favs = await FavoritesService.listFavorites();
+      setFavoriteIds(favs.map((f) => f.id));
+    } catch (e) {
+      console.error('ExpandableSearch.loadFavorites', e);
+    }
+  };
+
+  const handleToggleFavorite = async (result: SearchResult) => {
+    try {
+      const favItem = {
+        id: result.id,
+        title: result.title,
+        subtitle: result.subtitle,
+        latitude: result.latitude,
+        longitude: result.longitude,
+        type: result.type,
+      };
+      await FavoritesService.toggleFavorite(favItem);
+      Vibration.vibrate(30);
+      loadFavorites();
+    } catch (e) {
+      console.error('toggle favorite error', e);
+    }
+  };
 
   // Fonction pour charger l'historique
   const loadHistory = async () => {
@@ -285,6 +322,31 @@ export default function ExpandableSearch({
       useNativeDriver: false,
     }).start();
   }, [isExpanded]);
+
+  // Enable LayoutAnimation on Android
+  useEffect(() => {
+    if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+      try {
+        UIManager.setLayoutAnimationEnabledExperimental(true);
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, []);
+
+  // Animate list fade/slide when expanded or results change
+  useEffect(() => {
+    Animated.timing(listAnim, {
+      toValue: isExpanded ? 1 : 0,
+      duration: 280,
+      useNativeDriver: true,
+    }).start();
+  }, [isExpanded, searchMode, searchResults.length, historyItems.length]);
+
+  // Use LayoutAnimation on major list changes for smooth rearrange
+  useEffect(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+  }, [searchResults, historyItems, searchMode]);
 
   // Auto-expansion si demandée (pour le mode navigation)
   useEffect(() => {
@@ -860,6 +922,8 @@ export default function ExpandableSearch({
           onAddNavigationStop ? handleAddNavigationStopCallback : undefined
         }
         onAddStep={onAddStep ? handleAddStepCallback : undefined}
+  onToggleFavorite={handleToggleFavorite}
+  isFavorite={(id: string) => favoriteIds.includes(id)}
         isNavigating={isNavigating}
         getCategoryColor={getCategoryColor}
         onDeleteHistoryItem={handleDeleteHistoryItemCallback}
@@ -938,7 +1002,10 @@ export default function ExpandableSearch({
     <>
       {/* Barre de recherche normale */}
       {!isNavigating && (
-        <View style={styles.searchContainer}>
+        <View style={[
+            styles.searchContainer,
+            windowWidth > 700 ? { left: windowWidth * 0.12, right: windowWidth * 0.12, top: 32 } : {},
+          ]}>
           {/* When collapsed, the input must not open keyboard. Tap opens full search modal and then focuses. */}
           <TouchableOpacity
             activeOpacity={0.8}
@@ -984,14 +1051,33 @@ export default function ExpandableSearch({
               <Icon name="arrow-back" size={24} color="#333" />
             </TouchableOpacity>
 
-            <TextInput
-              ref={(r) => (expandedInputRef.current = r)}
-              style={styles.expandedInput}
-              placeholder={placeholder}
-              value={value}
-              onChangeText={handleTextChange}
-              autoFocus
-            />
+            <View style={styles.headerInputRow}>
+              <TextInput
+                ref={(r) => (expandedInputRef.current = r)}
+                style={styles.expandedInput}
+                placeholder={placeholder}
+                value={value}
+                onChangeText={handleTextChange}
+                autoFocus
+                returnKeyType="search"
+                onSubmitEditing={handleSearchPress}
+              />
+              <TouchableOpacity
+                style={styles.headerSearchButton}
+                onPress={handleSearchPress}
+                disabled={searchMode === "address" && value.trim().length <= 2}
+              >
+                <Icon
+                  name="search"
+                  size={20}
+                  color={
+                    searchMode === "poi" || value.trim().length > 2
+                      ? "#007AFF"
+                      : "#ccc"
+                  }
+                />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Modes de recherche */}
@@ -1042,7 +1128,7 @@ export default function ExpandableSearch({
                   searchMode === "poi" && styles.modeTextActive,
                 ]}
               >
-                POI (Overpass)
+                POI
               </Text>
             </TouchableOpacity>
 
@@ -1062,31 +1148,15 @@ export default function ExpandableSearch({
                 color={searchMode === "recent" ? "#fff" : "#666"}
               />
               <Text
-                style={[
-                  styles.modeText,
-                  searchMode === "recent" && styles.modeTextActive,
-                ]}
-              >
-                Trajets récents
-              </Text>
+                  style={[
+                    styles.modeText,
+                    searchMode === "recent" && styles.modeTextActive,
+                  ]}
+                >
+                  Trajets récents
+                </Text>
             </TouchableOpacity>
-
-            {/* Bouton de recherche manuelle */}
-            <TouchableOpacity
-              style={styles.manualSearchButton}
-              onPress={handleSearchPress}
-              disabled={searchMode === "address" && value.trim().length <= 2}
-            >
-              <Icon
-                name="search"
-                size={20}
-                color={
-                  searchMode === "poi" || value.trim().length > 2
-                    ? "#007AFF"
-                    : "#ccc"
-                }
-              />
-            </TouchableOpacity>
+            {/* manual search button moved to header for better UX */}
           </View>
 
           <View style={styles.quickPOIContainer}>
@@ -1160,7 +1230,11 @@ export default function ExpandableSearch({
           </View>
 
           {/* Résultats */}
-          <View style={styles.resultsContainer}>
+          <Animated.View style={[styles.resultsContainer, {
+            opacity: listAnim,
+            transform: [{ translateY: listAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }]
+          }]}
+          >
             {isLoading ? (
               <View style={styles.loadingContainer}>
                 <Text style={styles.loadingText}>Recherche...</Text>
@@ -1193,16 +1267,18 @@ export default function ExpandableSearch({
                       <Text style={styles.historyHeaderText}>
                         Trajets récents
                       </Text>
-                      <TouchableOpacity
-                        style={styles.clearHistoryButton}
-                        onPress={() => {
-                          RouteHistoryService.clearHistory().then(() => {
-                            loadHistory();
-                          });
-                        }}
-                      >
-                        <Text style={styles.clearHistoryText}>Effacer</Text>
-                      </TouchableOpacity>
+                      {historyItems.length > 0 && (
+                        <TouchableOpacity
+                          style={styles.clearHistoryButton}
+                          onPress={() => {
+                            RouteHistoryService.clearHistory().then(() => {
+                              loadHistory();
+                            });
+                          }}
+                        >
+                          <Text style={styles.clearHistoryText}>Effacer</Text>
+                        </TouchableOpacity>
+                      )}
                       {/* Bouton pour reprendre le dernier itinéraire */}
                       <TouchableOpacity
                         style={[styles.clearHistoryButton, { marginLeft: 8, backgroundColor: '#28A745' }]}
@@ -1247,7 +1323,7 @@ export default function ExpandableSearch({
                 }
               />
             )}
-          </View>
+          </Animated.View>
         </SafeAreaView>
       </Modal>
     </>
@@ -1333,7 +1409,7 @@ const styles = StyleSheet.create({
   modeButton: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: "#f0f0f0",
@@ -1528,5 +1604,17 @@ const styles = StyleSheet.create({
   favoriteButton: {
     padding: 8,
     marginLeft: 6,
+  },
+  headerInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 8,
+  },
+  headerSearchButton: {
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    elevation: 2,
   },
 });
