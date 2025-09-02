@@ -9,7 +9,7 @@
 
 export class SafetyTestConfig {
   // ⚠️ MODE TEST - Mettre à false pour la production
-  public static readonly IS_TEST_MODE = true;
+  public static readonly IS_TEST_MODE = false;
 
   // 🕐 SEUIL DE DÉCLENCHEMENT DU MODAL DE SÉCURITÉ
   // Production: 120 minutes (2 heures)

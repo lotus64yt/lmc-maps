@@ -20,7 +20,7 @@ import POIDrawer from "./components/POIDrawer";
 import MultiStepRouteDrawer from "./components/MultiStepRouteDrawer";
 import NavigationGuidance from "./components/NavigationGuidance";
 import LocationInfoDrawer from "./components/LocationInfoDrawer";
-import FavoritesDrawer from './components/FavoritesDrawer';
+import FavoritesDrawer from "./components/FavoritesDrawer";
 import NavigationStepDrawer from "./components/NavigationStepDrawer";
 import ArrivalDrawer from "./components/ArrivalDrawer";
 import ParkingDrawer from "./components/ParkingDrawer";
@@ -36,6 +36,8 @@ import ResumeTripModal from "./components/ResumeTripModal";
 import { SafetyTestConfig } from "./config/SafetyTestConfig";
 
 export default function Map() {
+  // Déclaration juste avant le return principal
+
   return (
     <MapViewProvider>
       <MapContent />
@@ -44,6 +46,18 @@ export default function Map() {
 }
 
 function MapContent() {
+  // ...existing code...
+  // États de visibilité des drawers/modals (tous regroupés en haut)
+  // ...autres useState et logique du composant...
+
+  // ...existing code...
+
+  // Placer ce bloc juste avant le return JSX
+  // ...existing code...
+  // ...existing code...
+
+  // Déclaration unique juste avant le return principal
+
   // Log de la configuration du système de sécurité au démarrage
   useEffect(() => {
     SafetyTestConfig.logConfiguration();
@@ -126,6 +140,86 @@ function MapContent() {
   } | null>(null);
   const [isFutureLocationSearch, setIsFutureLocationSearch] = useState(false);
   // Au démarrage, charger le dernier trajet inachevé
+
+  const [showLocationInfoDrawer, setShowLocationInfoDrawer] = useState(false);
+  const [selectedLocationCoordinate, setSelectedLocationCoordinate] =
+    useState<Coordinate | null>(null);
+  const [showLocationPoint, setShowLocationPoint] = useState(false);
+
+  // États pour le drawer d'étape de navigation
+  const [showNavigationStepDrawer, setShowNavigationStepDrawer] =
+    useState(false);
+  const [selectedNavigationStep, setSelectedNavigationStep] =
+    useState<any>(null);
+  const [selectedStepIndex, setSelectedStepIndex] = useState(0);
+
+  // États pour le drawer d'arrivée
+  const [showArrivalDrawer, setShowArrivalDrawer] = useState(false);
+  const [hasReachedDestination, setHasReachedDestination] = useState(false);
+
+  // État pour le parking sélectionné
+  const [selectedParking, setSelectedParking] = useState<{
+    coordinate: Coordinate;
+    name: string;
+  } | null>(null);
+
+  // État pour bloquer les animations automatiques pendant la sélection de parking
+  const [isParkingAnimating, setIsParkingAnimating] = useState(false);
+
+  // État pour le modal de recherche pendant la navigation
+  const [showNavigationSearch, setShowNavigationSearch] = useState(false);
+
+  const canShowGpxImport =
+    !showRouteDrawer &&
+    !showMultiStepDrawer &&
+    !showLocationInfoDrawer &&
+    !showNavigationStepDrawer &&
+    !showArrivalDrawer &&
+    !showParkingDrawer &&
+    !showPOIDrawer &&
+    !showNavigationGuidance &&
+    !showFavorites &&
+    !showSafetyModal &&
+    !showRestReminder;
+  // Fonction d'import GPX (factorisée)
+  const handleImportGpx = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({ type: "*/*" });
+      if (!res.canceled && res.assets && res.assets.length > 0) {
+        const asset = res.assets[0];
+        if (
+          asset.uri &&
+          asset.name &&
+          asset.name.toLowerCase().endsWith(".gpx")
+        ) {
+          const resp = await fetch(asset.uri);
+          const text = await resp.text();
+          const parsed = parseGPX(text);
+          const first =
+            parsed.waypoints.length > 0 ? parsed.waypoints[0] : parsed.track[0];
+          if (first) {
+            setSelectedDestination({
+              title: first.name || "Imported GPX",
+              subtitle: "",
+              latitude: first.latitude,
+              longitude: first.longitude,
+            });
+            if (parsed.track && parsed.track.length > 0) {
+              setImportedRouteCoords(
+                parsed.track.map((p) => ({
+                  latitude: p.latitude,
+                  longitude: p.longitude,
+                }))
+              );
+            }
+            setShowRouteDrawer(true);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("GPX import failed", e);
+    }
+  };
   useEffect(() => {
     (async () => {
       const trip = await LastTripStorage.load();
@@ -401,35 +495,6 @@ function MapContent() {
     setNavigationStartTime(null);
     setLongTripDuration(0);
   };
-
-  // État pour le drawer d'informations de lieu
-  const [showLocationInfoDrawer, setShowLocationInfoDrawer] = useState(false);
-  const [selectedLocationCoordinate, setSelectedLocationCoordinate] =
-    useState<Coordinate | null>(null);
-  const [showLocationPoint, setShowLocationPoint] = useState(false);
-
-  // États pour le drawer d'étape de navigation
-  const [showNavigationStepDrawer, setShowNavigationStepDrawer] =
-    useState(false);
-  const [selectedNavigationStep, setSelectedNavigationStep] =
-    useState<any>(null);
-  const [selectedStepIndex, setSelectedStepIndex] = useState(0);
-
-  // États pour le drawer d'arrivée
-  const [showArrivalDrawer, setShowArrivalDrawer] = useState(false);
-  const [hasReachedDestination, setHasReachedDestination] = useState(false);
-
-  // État pour le parking sélectionné
-  const [selectedParking, setSelectedParking] = useState<{
-    coordinate: Coordinate;
-    name: string;
-  } | null>(null);
-
-  // État pour bloquer les animations automatiques pendant la sélection de parking
-  const [isParkingAnimating, setIsParkingAnimating] = useState(false);
-
-  // État pour le modal de recherche pendant la navigation
-  const [showNavigationSearch, setShowNavigationSearch] = useState(false);
 
   // Fonction utilitaire pour calculer les coordonnées ajustées selon le drawer padding
   const getAdjustedCoordinate = (
@@ -2037,6 +2102,16 @@ function MapContent() {
 
   return (
     <View style={styles.container}>
+      {/* Bouton flottant d'import GPX, visible si aucun drawer/modal n'est ouvert */}
+      {canShowGpxImport && (
+        <TouchableOpacity
+          style={styles.gpxImportButton}
+          onPress={handleImportGpx}
+          activeOpacity={0.8}
+        >
+          <MaterialIcons name="file-upload" size={28} color="#007AFF" />
+        </TouchableOpacity>
+      )}
       {/* Modal de reprise de trajet */}
       <ResumeTripModal
         visible={resumeModalVisible}
@@ -2398,10 +2473,10 @@ function MapContent() {
             const dest = {
               id: item.id,
               title: item.title,
-              subtitle: item.subtitle || '',
+              subtitle: item.subtitle || "",
               latitude: item.latitude,
               longitude: item.longitude,
-              type: item.type === 'overpass' ? 'overpass' : 'nominatim',
+              type: item.type === "overpass" ? "overpass" : "nominatim",
             };
             handleSelectLocation(dest as any);
           }}
@@ -2662,6 +2737,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     height: "100%",
+  },
+  gpxImportButton: {
+    position: "absolute",
+    bottom: 32,
+    right: 24,
+    backgroundColor: "#fff",
+    borderRadius: 28,
+    padding: 12,
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 3.84,
+    zIndex: 1001,
   },
   multiStepButton: {
     position: "absolute",
