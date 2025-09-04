@@ -20,7 +20,6 @@ class NavigationService {
     progressPercentage: 0,
     hasStartedMoving: false,
   };
-
   private locationSubscription: Location.LocationSubscription | null = null;
   private listeners: ((state: NavigationState) => void)[] = [];
   private routeService: any = null; // Référence au service de route
@@ -32,17 +31,13 @@ class NavigationService {
     longitude: number;
     name?: string;
   } | null = null;
-  private initialLocation: { latitude: number; longitude: number } | null =
-    null; // Position de départ
+  private initialLocation: { latitude: number; longitude: number } | null = null; // Position de départ
   private movementThreshold: number = 20; // Distance minimale pour considérer qu'on a commencé à bouger (mètres)
-
-  // Nouveau système pour éviter les changements d'étapes trop fréquents
   private lastStepChangeTime: number = 0;
   private stepChangeMinInterval: number = 3000; // 3 secondes minimum entre changements d'étapes
   private stepToleranceDistance: number = 50; // 50 mètres de tolérance pour éviter les oscillations
 
-  // Démarrer la navigation avec les étapes de route
-  async startNavigation(
+async startNavigation(
     routeSteps: NavigationStep[],
     routeService?: any,
     mode: string = "driving",
@@ -639,6 +634,27 @@ class NavigationService {
   // Obtenir les coordonnées de la route restante (pour l'affichage)
   getRemainingRouteCoordinates(): [number, number][] {
     return this.navigationState.remainingRouteCoordinates || [];
+  }
+
+  // Convertit un track GPX en étapes de navigation simples
+  public convertGpxTrackToNavigationSteps(track: Array<{ latitude: number; longitude: number; name?: string }>): NavigationStep[] {
+    if (!track || track.length < 2) return [];
+    const steps: NavigationStep[] = [];
+    for (let i = 1; i < track.length; i++) {
+      const prev = track[i - 1];
+      const curr = track[i];
+      const distance = this.calculateDistance(prev.latitude, prev.longitude, curr.latitude, curr.longitude);
+      steps.push({
+        instruction: `Aller vers le point suivant`,
+        distance,
+        duration: distance / 1.4, // vitesse piétonne ~5km/h
+        maneuver: "straight",
+        coordinates: [curr.longitude, curr.latitude],
+        direction: "",
+        streetName: curr.name || "GPX"
+      });
+    }
+    return steps;
   }
 
   // Calculer la distance minimale entre l'utilisateur et une étape de navigation

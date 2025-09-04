@@ -211,6 +211,7 @@ interface ExpandableSearchProps {
   onClose?: () => void; // Nouveau prop pour fermer le modal
   onResumeLastTrip?: () => void; // Ouvrir le dialog / reprendre le dernier trajet
   onCameraMove?: (coordinate: { latitude: number; longitude: number } | null, offset?: { x: number; y: number }) => void;
+  onImportGpx?: () => void;
 }
 
 export default function ExpandableSearch({
@@ -229,6 +230,7 @@ export default function ExpandableSearch({
   onClose,
   onResumeLastTrip,
   onCameraMove,
+  onImportGpx,
 }: ExpandableSearchProps) {
   const { width: windowWidth } = useWindowDimensions();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -999,7 +1001,7 @@ export default function ExpandableSearch({
   };
 
   return (
-    <>
+  <>
       {/* Barre de recherche normale */}
       {!isNavigating && (
         <View style={[
@@ -1324,6 +1326,21 @@ export default function ExpandableSearch({
               />
             )}
           </Animated.View>
+          {/* GPX import button at the bottom of expanded modal */}
+          <View style={{ alignItems: 'center', marginBottom: 16, marginTop: 8 }}>
+            <TouchableOpacity
+              style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#F0F8FF', borderRadius: 24, paddingVertical: 10, paddingHorizontal: 20, elevation: 2 }}
+              onPress={() => {
+                // Fermer le modal d'expansion puis déclencher l'import GPX
+                handleClose();
+                if (onImportGpx) onImportGpx();
+              }}
+              activeOpacity={0.8}
+            >
+              <Icon name="file-upload" size={22} color="#007AFF" style={{ marginRight: 8 }} />
+              <Text style={{ color: '#007AFF', fontWeight: 'bold', fontSize: 15 }}>Importer un fichier GPX</Text>
+            </TouchableOpacity>
+          </View>
         </SafeAreaView>
       </Modal>
     </>

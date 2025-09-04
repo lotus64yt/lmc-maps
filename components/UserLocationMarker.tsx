@@ -14,6 +14,7 @@ interface UserLocationMarkerProps {
     isOnRoute: boolean;
   };
   isNavigating?: boolean;
+  color?: string; // Couleur du marker (bleu par défaut, gris si position ancienne)
 }
 
 export default function UserLocationMarker({
@@ -22,7 +23,8 @@ export default function UserLocationMarker({
   compassMode,
   mapHeading = 0,
   routeDirection,
-  isNavigating = false
+  isNavigating = false,
+  color = '#007AFF',
 }: UserLocationMarkerProps) {
   
   // En mode navigation, utiliser la direction de la route si disponible et l'utilisateur est sur la route
@@ -89,7 +91,7 @@ export default function UserLocationMarker({
   // Render only the view contents; the parent (MapContainer) should wrap this
   // component into a Mapbox `PointAnnotation` so it is visible on the map.
   return isNavigating ? (
-    // Blue background ring with rotating arrow on top
+    // Blue (or gray) background ring with rotating arrow on top
     <View
       style={{
         width: 40,
@@ -103,7 +105,7 @@ export default function UserLocationMarker({
           width: 34,
           height: 34,
           borderRadius: 17,
-          backgroundColor: '#007AFF',
+          backgroundColor: color,
           borderWidth: 3,
           borderColor: 'white',
           alignItems: 'center',
@@ -139,7 +141,7 @@ export default function UserLocationMarker({
           height: 24,
           borderRadius: 12,
           borderWidth: 3,
-          borderColor: '#007AFF',
+          borderColor: color,
           backgroundColor: 'transparent',
         }}
       />

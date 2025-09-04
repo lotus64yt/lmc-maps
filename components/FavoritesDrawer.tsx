@@ -54,6 +54,7 @@ export default function FavoritesDrawer({ visible, onClose, onSelect }: Props) {
             {items.length === 0 && (
               <View style={styles.empty}><Text style={styles.emptyText}>Aucun favori pour le moment</Text></View>
             )}
+            {/* GPX import removed from favorites drawer per UX decision */}
           </View>
         </View>
       </View>
@@ -76,4 +77,5 @@ const styles = StyleSheet.create({
   iconButton: { padding: 6 },
   empty: { padding: 24, alignItems: 'center' },
   emptyText: { color: '#999' },
+  
 });

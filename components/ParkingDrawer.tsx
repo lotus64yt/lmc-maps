@@ -53,6 +53,8 @@ export default function ParkingDrawer({
   const [searchingExactSpot, setSearchingExactSpot] = useState(false);
 
   const translateY = useRef(new Animated.Value(DRAWER_HEIGHT)).current;
+  const footerTranslateY = useRef(new Animated.Value(180)).current;
+  const footerScale = useRef(new Animated.Value(1)).current;
 
   // Rechercher des parkings
   const searchParkings = async (location: Coordinate) => {
@@ -62,10 +64,6 @@ export default function ParkingDrawer({
     setSelectedParking(null);
 
     try {
-      if (!ParkingService.isInParis(location.latitude, location.longitude)) {
-        throw new Error("Le service de parking n'est disponible qu'à Paris");
-      }
-
       const result = await ParkingService.findNearbyParkings(
         location.latitude,
         location.longitude,
@@ -87,7 +85,15 @@ export default function ParkingDrawer({
   // Sélectionner un parking
   const handleParkingSelect = (parking: ParkingSpot) => {
     Vibration.vibrate(50);
-setSelectedParking(parking);
+    // Toggle selection when tapping the already selected parking
+    if (selectedParking && selectedParking.id === parking.id) {
+      // Deselect
+      setSelectedParking(null);
+      // do not call onParkingSelect on deselect
+      return;
+    }
+
+    setSelectedParking(parking);
     onParkingSelect(parking);
   };
 
@@ -138,8 +144,41 @@ setSelectedParking(parking);
         toValue: screenHeight,
         useNativeDriver: true,
       }).start();
+      // hide footer when drawer closes
+      setSelectedParking(null);
+      footerTranslateY.setValue(180);
     }
   }, [visible]);
+
+  // Footer animation on selectedParking change
+  useEffect(() => {
+    if (selectedParking) {
+      // Slide up + small bounce
+      footerTranslateY.setValue(180);
+      footerScale.setValue(0.98);
+      Animated.parallel([
+        Animated.spring(footerTranslateY, {
+          toValue: 0,
+          useNativeDriver: true,
+          friction: 6,
+          tension: 80,
+        }),
+        Animated.spring(footerScale, {
+          toValue: 1,
+          useNativeDriver: true,
+          friction: 6,
+          tension: 80,
+        }),
+      ]).start();
+    } else {
+      // Slide down
+      Animated.timing(footerTranslateY, {
+        toValue: 180,
+        duration: 180,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [selectedParking]);
 
   const panResponder = PanResponder.create({
     onMoveShouldSetPanResponder: (evt, gestureState) => {
@@ -225,17 +264,16 @@ setSelectedParking(parking);
               </Text>
             )}
           </View>
+          {parking.features && parking.features.length > 0 && (
+            <View style={styles.featuresContainer}>
+              {parking.features.map((feature, index) => (
+                <View key={index} style={styles.featureBadge}>
+                  <Text style={styles.featureText}>{feature}</Text>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
-
-        {parking.features && parking.features.length > 0 && (
-          <View style={styles.featuresContainer}>
-            {parking.features.map((feature, index) => (
-              <View key={index} style={styles.featureBadge}>
-                <Text style={styles.featureText}>{feature}</Text>
-              </View>
-            ))}
-          </View>
-        )}
       </TouchableOpacity>
     );
   };
@@ -263,7 +301,7 @@ setSelectedParking(parking);
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+  <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: 180 }} showsVerticalScrollIndicator={false}>
         {loading && (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#007AFF" />
@@ -290,45 +328,51 @@ setSelectedParking(parking);
           </View>
         )}
 
-        {/* Actions pour le parking sélectionné */}
-        {selectedParking && (
-          <View style={styles.actionsContainer}>
-            <Text style={styles.actionTitle}>
-              Actions pour {selectedParking.name}
-            </Text>
-
-            <TouchableOpacity
-              style={[styles.actionButton, styles.navigateButton]}
-              onPress={() => handleNavigateToParking(false)}
-            >
-              <Icon name="directions" size={24} color="white" />
-              <Text style={styles.actionButtonText}>
-                Naviguer vers l'entrée
-              </Text>
-            </TouchableOpacity>
-
-            {(selectedParking.provider === "Q-Park" ||
-              selectedParking.provider === "Saemes") && (
-              <TouchableOpacity
-                style={[styles.actionButton, styles.exactSpotButton]}
-                onPress={() => handleNavigateToParking(true)}
-                disabled={searchingExactSpot}
-              >
-                {searchingExactSpot ? (
-                  <ActivityIndicator size={20} color="white" />
-                ) : (
-                  <Icon name="my-location" size={24} color="white" />
-                )}
-                <Text style={styles.actionButtonText}>
-                  {searchingExactSpot
-                    ? "Recherche..."
-                    : "Trouver une place exacte"}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
+  {/* Actions pour le parking sélectionné (moved to footer) */}
       </ScrollView>
+
+      {/* Absolute footer with actions so buttons are always accessible */}
+      {selectedParking && (
+        <Animated.View
+          style={[
+            styles.footerContainer,
+            {
+              transform: [
+                { translateY: footerTranslateY },
+                { scale: footerScale },
+              ],
+            },
+          ]}
+          pointerEvents="box-none"
+        >
+          <View style={styles.footerContent}>
+            <Text style={styles.actionTitle}>Actions pour {selectedParking.name}</Text>
+            <View style={styles.footerButtonsRow}>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.navigateButton, { flex: 1 }]}
+                onPress={() => handleNavigateToParking(false)}
+              >
+                <Icon name="directions" size={20} color="white" />
+                <Text style={styles.actionButtonText}>Naviguer vers l'entrée</Text>
+              </TouchableOpacity>
+
+              {(selectedParking.provider === "Q-Park" || selectedParking.provider === "Saemes") && (
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.exactSpotButton, { marginLeft: 12, width: 140 }]}
+                  onPress={() => handleNavigateToParking(true)}
+                  disabled={searchingExactSpot}
+                >
+                  {searchingExactSpot ? (
+                    <ActivityIndicator size={18} color="white" />
+                  ) : (
+                    <Icon name="my-location" size={18} color="white" />
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </Animated.View>
+      )}
     </Animated.View>
   );
 }
@@ -524,5 +568,30 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     marginLeft: 8,
+  },
+  footerContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 12,
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    pointerEvents: 'box-none',
+  },
+  footerContent: {
+    width: '100%',
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  footerButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
   },
 });

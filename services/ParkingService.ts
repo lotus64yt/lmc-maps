@@ -37,7 +37,7 @@ class ParkingService {
     west: 2.2242
   };
 
-  // Vérifier si on est dans Paris
+  // Vérifier si on est dans Paris (utilisé pour sources additionnelles)
   isInParis(latitude: number, longitude: number): boolean {
     return latitude >= this.PARIS_BOUNDS.south &&
            latitude <= this.PARIS_BOUNDS.north &&
@@ -50,24 +50,22 @@ class ParkingService {
     latitude: number, 
     longitude: number, 
     radiusKm: number = 1
-  ): Promise<ParkingSearchResult> {if (!this.isInParis(latitude, longitude)) {
-      throw new Error('Le service de parking n\'est disponible qu\'à Paris');
-    }
-
+  ): Promise<ParkingSearchResult> {
     const parkings: ParkingSpot[] = [];
 
     try {
-      // 1. API Open Data Paris - Parkings publics
-      const parisData = await this.fetchParisOpenData(latitude, longitude, radiusKm);
-      parkings.push(...parisData);
-
-      // 2. API ParkingList (gratuite pour informations de base)
-      const parkingListData = await this.fetchParkingListData(latitude, longitude, radiusKm);
-      parkings.push(...parkingListData);
-
-      // 3. Overpass API pour parkings de rue
+      // 1. Overpass API (global) - priorité primaire pour couverture mondiale
       const streetParkings = await this.fetchStreetParkingsOverpass(latitude, longitude, radiusKm);
       parkings.push(...streetParkings);
+
+      // 2. Sources spécifiques à Paris en complément (si applicable)
+      if (this.isInParis(latitude, longitude)) {
+        const parisData = await this.fetchParisOpenData(latitude, longitude, radiusKm);
+        parkings.push(...parisData);
+
+        const parkingListData = await this.fetchParkingListData(latitude, longitude, radiusKm);
+        parkings.push(...parkingListData);
+      }
 
       // Trier par distance
       const sortedParkings = parkings
@@ -76,7 +74,9 @@ class ParkingService {
           distance: this.calculateDistance(latitude, longitude, parking.coordinate.latitude, parking.coordinate.longitude)
         }))
         .sort((a, b) => (a.distance || 0) - (b.distance || 0))
-        .slice(0, 20); // Limiter à 20 résultatsreturn {
+        .slice(0, 50); // Limiter à 50 résultats
+
+      return {
         parkings: sortedParkings,
         searchLocation: { latitude, longitude }
       };
@@ -123,7 +123,8 @@ class ParkingService {
             });
           }
         }
-      }return parkings;
+      }
+return parkings;
     } catch (error) {
       console.error('🅿️ Erreur API Paris Open Data:', error);
       return [];
@@ -177,7 +178,8 @@ class ParkingService {
       const nearbyParkings = mockParkings.filter(parking => {
         const distance = this.calculateDistance(lat, lon, parking.coordinate.latitude, parking.coordinate.longitude);
         return distance <= radius;
-      });return nearbyParkings;
+      });
+return nearbyParkings;
     } catch (error) {
       console.error('🅿️ Erreur données parking mock:', error);
       return [];
@@ -187,39 +189,69 @@ class ParkingService {
   // Overpass API pour parkings de rue
   private async fetchStreetParkingsOverpass(lat: number, lon: number, radius: number): Promise<ParkingSpot[]> {
     try {
-      const radiusMeters = radius * 1000;
+      const radiusMeters = Math.max(100, Math.round(radius * 1000));
+      // Try multiple Overpass endpoints for better reliability
+      const endpoints = [
+        'https://overpass-api.de/api/interpreter',
+        'https://overpass.kumi.systems/api/interpreter',
+        'https://overpass.openstreetmap.fr/api/interpreter'
+      ];
+
       const query = `
         [out:json][timeout:25];
         (
           node["amenity"="parking"](around:${radiusMeters},${lat},${lon});
           way["amenity"="parking"](around:${radiusMeters},${lat},${lon});
+          relation["amenity"="parking"](around:${radiusMeters},${lat},${lon});
         );
-        out geom;
+        out center;
       `;
 
-      const response = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        body: query,
-      });
+      let data: any = null;
+      let lastError: any = null;
 
-      if (!response.ok) {
-        console.warn('🅿️ Overpass API non disponible');
+      for (const endpoint of endpoints) {
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            body: query,
+          });
+
+          if (!response.ok) {
+            lastError = new Error(`Overpass endpoint ${endpoint} returned ${response.status}`);
+            continue;
+          }
+
+          data = await response.json();
+          break;
+        } catch (err) {
+          lastError = err;
+          continue;
+        }
+      }
+
+      if (!data) {
+        console.warn('🅿️ Overpass API non disponible:', lastError);
         return [];
       }
 
-      const data = await response.json();
       const parkings: ParkingSpot[] = [];
 
       if (data.elements) {
         for (const element of data.elements) {
-          let coordinate;
-          
-          if (element.type === 'node') {
+          let coordinate: { latitude: number; longitude: number } | null = null;
+
+          if (element.type === 'node' && typeof element.lat === 'number' && typeof element.lon === 'number') {
             coordinate = { latitude: element.lat, longitude: element.lon };
-          } else if (element.type === 'way' && element.geometry) {
-            // Prendre le centre du way
-            const firstPoint = element.geometry[0];
-            coordinate = { latitude: firstPoint.lat, longitude: firstPoint.lon };
+          } else if ((element.type === 'way' || element.type === 'relation') && element.center) {
+            coordinate = { latitude: element.center.lat, longitude: element.center.lon };
+          } else if (element.geometry && Array.isArray(element.geometry) && element.geometry.length > 0) {
+            // Fallback: compute centroid of geometry points
+            const sum = element.geometry.reduce((acc: any, p: any) => {
+              return { lat: acc.lat + p.lat, lon: acc.lon + p.lon };
+            }, { lat: 0, lon: 0 });
+            const len = element.geometry.length;
+            coordinate = { latitude: sum.lat / len, longitude: sum.lon / len };
           }
 
           if (coordinate && element.tags) {
@@ -238,7 +270,9 @@ class ParkingService {
             });
           }
         }
-      }return parkings;
+      }
+
+      return parkings;
     } catch (error) {
       console.error('🅿️ Erreur Overpass API:', error);
       return [];
@@ -246,7 +280,8 @@ class ParkingService {
   }
 
   // Obtenir des informations détaillées et position exacte d'une place libre
-  async getExactParkingSpot(parking: ParkingSpot): Promise<ParkingSpot | null> {try {
+  async getExactParkingSpot(parking: ParkingSpot): Promise<ParkingSpot | null> {
+try {
       // Simuler la recherche d'une place exacte
       // En réalité, cela dépendrait de l'API du fournisseur de parking
       
@@ -259,7 +294,8 @@ class ParkingService {
             latitude: parking.coordinate.latitude + (Math.random() - 0.5) * offset,
             longitude: parking.coordinate.longitude + (Math.random() - 0.5) * offset
           }
-        };return exactSpot;
+        };
+return exactSpot;
       }
 
       // Pour les parkings de rue, retourner les coordonnées d'entrée

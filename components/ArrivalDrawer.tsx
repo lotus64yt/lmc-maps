@@ -159,9 +159,13 @@ continue;
     setLocationInfo(null);
     setPhotos([]);
 
-    // Vérifier si on est à Paris dès le début - TOUJOURS tester les coordonnées
-    const inParis = ParkingService.isInParis(coord.latitude, coord.longitude);
-setIsInParis(inParis);
+    // Mettre à jour le flag isInParis (utilisé uniquement pour informations complémentaires)
+    try {
+      const inParis = ParkingService.isInParis(coord.latitude, coord.longitude);
+      setIsInParis(inParis);
+    } catch (e) {
+      setIsInParis(false);
+    }
 
     try {
       const result = await NominatimService.reverse(
@@ -213,8 +217,20 @@ setIsInParis(inParis);
   // Fonction pour rechercher un parking
   const handleFindParking = () => {
     Vibration.vibrate(50);
-    if (destination && destination.coordinate && onFindParking) {
-onFindParking(destination.coordinate);
+    if (!onFindParking) return;
+
+    // Prefer explicit destination coordinate, otherwise try reverse geocode result
+    let coord: Coordinate | null = null;
+    if (destination && destination.coordinate) {
+      coord = destination.coordinate;
+    } else if (locationInfo && locationInfo.lat && locationInfo.lon) {
+      coord = { latitude: parseFloat(locationInfo.lat), longitude: parseFloat(locationInfo.lon) };
+    }
+
+    if (coord) {
+      onFindParking(coord);
+    } else {
+      alert('Coordonnée introuvable pour la recherche de parking.');
     }
   };
 
@@ -228,12 +244,16 @@ onFindParking(destination.coordinate);
   // S'assurer que isInParis est correct même si fetchDestinationInfo n'est pas appelé
   useEffect(() => {
     if (visible && destination?.coordinate && dataLoaded) {
-      const inParis = ParkingService.isInParis(destination.coordinate.latitude, destination.coordinate.longitude);
-      if (inParis !== isInParis) {
-setIsInParis(inParis);
+      try {
+        const inParis = ParkingService.isInParis(destination.coordinate.latitude, destination.coordinate.longitude);
+        if (inParis !== isInParis) {
+          setIsInParis(inParis);
+        }
+      } catch (e) {
+        setIsInParis(false);
       }
     }
-  }, [visible, destination?.coordinate, dataLoaded, isInParis]);
+  }, [visible, destination?.coordinate, dataLoaded]);
 
   // Reset data when destination changes
   useEffect(() => {
@@ -267,11 +287,14 @@ if (destination?.coordinate) {
   }, [isInParis]);
 
   // Animation logic et gestion du suivi utilisateur
+  const hasOpenedRef = useRef(false);
   useEffect(() => {
-    if (visible) {
+    // Only run open-side effects when transitioning from closed -> open
+    if (visible && !hasOpenedRef.current) {
+      hasOpenedRef.current = true;
+
       // Effacer les points d'étapes quand on arrive à destination
       if (onClearSteps) {
-        // // debugLog.info('Clearing navigation steps (arrival)');
         onClearSteps();
       }
 
@@ -279,13 +302,12 @@ if (destination?.coordinate) {
       if (onDisableFollowUser) {
         onDisableFollowUser();
       }
-      
-      // Ajuster la caméra pour voir l'utilisateur au-dessus du drawer
+
+      // Ajuster la caméra pour voir l'utilisateur au-dessus du drawer (best-effort)
       if (destination?.coordinate && onAdjustCamera) {
-        // Calculer un point légèrement décalé vers le haut pour que l'utilisateur apparaisse au-dessus du drawer
         const adjustedCoordinate = {
-          latitude: destination.coordinate.latitude + 0.001, // Petit décalage vers le nord
-          longitude: destination.coordinate.longitude
+          latitude: destination.coordinate.latitude + 0.001,
+          longitude: destination.coordinate.longitude,
         };
         onAdjustCamera(adjustedCoordinate);
       }
@@ -293,16 +315,21 @@ if (destination?.coordinate) {
       Animated.spring(translateY, {
         toValue: screenHeight - DRAWER_HEIGHT,
         useNativeDriver: true,
-        bounciness: 8, // Un peu plus de rebond pour célébrer
+        bounciness: 8,
         speed: 12,
       }).start();
-    } else {
+    }
+
+    // Run close animation when it becomes not visible; reset opened flag
+    if (!visible && hasOpenedRef.current) {
+      hasOpenedRef.current = false;
       Animated.spring(translateY, {
         toValue: screenHeight,
         useNativeDriver: true,
         bounciness: 0,
       }).start();
     }
+    // Intentionally depend only on visible and destination.coordinate for the initial open
   }, [visible, destination?.coordinate]);
 
   const panResponder = PanResponder.create({
@@ -479,19 +506,8 @@ if (destination?.coordinate) {
 
             {onFindParking && (
             <TouchableOpacity 
-              style={[
-              styles.actionButton, 
-              styles.parkingButton, 
-              !isInParis && { opacity: 0.5 }
-              ]}
-              onPress={() => {
-              if (isInParis) {
-                handleFindParking();
-              } else {
-                alert("Le service de parking est uniquement disponible à Paris pour le moment.");
-              }
-              }}
-              disabled={false}
+              style={[styles.actionButton, styles.parkingButton]}
+              onPress={handleFindParking}
             >
               <Icon name="local-parking" size={24} color="white" />
               <Text style={styles.actionButtonText}>Trouver un parking</Text>

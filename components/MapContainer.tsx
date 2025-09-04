@@ -48,15 +48,19 @@ interface MapContainerProps {
   onNavigationStepPress?: (stepIndex: number, step: NavigationStep) => void;
   directLineCoords?: Coordinate[];
   nearestRoadPoint?: Coordinate | null;
+  hasDirectLineSegment?: boolean;
+  showLocationPoint?: boolean;
+  userLocationColor?: string;
+  selectedLocationCoordinate?: Coordinate | null;
+  selectedParking?: { coordinate: Coordinate; name: string } | null;
   completedRouteCoords?: Coordinate[];
   remainingRouteCoords?: Coordinate[];
   progressPercentage?: number;
-  hasDirectLineSegment?: boolean;
-  showLocationPoint?: boolean;
-  selectedLocationCoordinate?: Coordinate | null;
-  selectedParking?: { coordinate: Coordinate; name: string } | null;
   routeDirection?: { bearing: number; isOnRoute: boolean } | undefined;
   mapHeadingOverride?: number | null;
+  previewMarkerCoordinate?: Coordinate | null;
+  previewMarkerBearing?: number;
+  gpxRouteCoords?: Coordinate[];
 }
 
 export default function MapContainer({
@@ -77,23 +81,23 @@ export default function MapContainer({
   navigationSteps = [],
   currentStepIndex = 0,
   onNavigationStepPress,
-  // Nouvelles props pour le tracé hybride
   directLineCoords = [],
   nearestRoadPoint,
   hasDirectLineSegment = false,
-  // Props pour le point de location sélectionné
   showLocationPoint = false,
   selectedLocationCoordinate,
-  // Props pour le parking sélectionné
   selectedParking,
-  // Nouvelles props pour la progression de navigation
   completedRouteCoords = [],
   remainingRouteCoords = [],
   progressPercentage = 0,
-  // Nouvelle prop pour la direction de la route
   routeDirection,
   mapHeadingOverride = null,
+  userLocationColor,
+  previewMarkerCoordinate,
+  previewMarkerBearing,
+  gpxRouteCoords = [],
 }: MapContainerProps) {
+  // ...existing code...
   // Utiliser le contexte MapView
   const {
     mapRef,
@@ -133,7 +137,14 @@ export default function MapContainer({
     } catch (e) {
       // ignore
     }
-  }, [heading, currentHeading, compassMode, mapBearing, isNavigating, routeDirection]);
+  }, [
+    heading,
+    currentHeading,
+    compassMode,
+    mapBearing,
+    isNavigating,
+    routeDirection,
+  ]);
 
   // Fonction utilitaire pour calculer la distance entre deux points
   const calculateDistance = (
@@ -466,6 +477,7 @@ export default function MapContainer({
       ? {
           type: "Feature" as const,
           properties: {},
+
           geometry: {
             type: "LineString" as const,
             coordinates: directLineCoords.map((coord) => [
@@ -486,8 +498,7 @@ export default function MapContainer({
             ],
           },
         }
-      : null; // Retourner null si pas de données valides
-
+      : null;
   // Debug log pour voir les données hybrides
   if (hasDirectLineSegment || (isNavigating && navigationMode === "walking")) {
   }
@@ -605,18 +616,31 @@ export default function MapContainer({
         coords = event.coordinates as number[];
       } else if (event?.nativeEvent?.coordinates) {
         coords = event.nativeEvent.coordinates;
-      } else if (event?.features && Array.isArray(event.features) && event.features[0]?.geometry?.coordinates) {
+      } else if (
+        event?.features &&
+        Array.isArray(event.features) &&
+        event.features[0]?.geometry?.coordinates
+      ) {
         coords = event.features[0].geometry.coordinates;
       } else if (event?.properties?.coordinate) {
         const c = event.properties.coordinate;
-        if (c && typeof c.longitude === 'number' && typeof c.latitude === 'number') {
+        if (
+          c &&
+          typeof c.longitude === "number" &&
+          typeof c.latitude === "number"
+        ) {
           onLongPress({ latitude: c.latitude, longitude: c.longitude });
           return;
         }
       }
 
       // If we couldn't find coords in the event, fallback to map center if available
-      if (!coords && mapRef && (mapRef as any).current && typeof (mapRef as any).current.getCenter === 'function') {
+      if (
+        !coords &&
+        mapRef &&
+        (mapRef as any).current &&
+        typeof (mapRef as any).current.getCenter === "function"
+      ) {
         try {
           const center = await (mapRef as any).current.getCenter();
           if (Array.isArray(center) && center.length >= 2) {
@@ -629,14 +653,17 @@ export default function MapContainer({
 
       if (coords && coords.length >= 2) {
         const [longitude, latitude] = coords;
-        console.debug('handleMapPress coords', longitude, latitude);
+        console.debug("handleMapPress coords", longitude, latitude);
         onLongPress({ latitude, longitude });
         return;
       }
 
-      console.warn('handleMapPress: unable to determine coordinates from event', event);
+      console.warn(
+        "handleMapPress: unable to determine coordinates from event",
+        event
+      );
     } catch (e) {
-      console.warn('handleMapPress error', e);
+      console.warn("handleMapPress error", e);
     }
   };
 
@@ -644,7 +671,7 @@ export default function MapContainer({
   const handleTouchStart = (e: any) => {
     try {
       const ne = e?.nativeEvent;
-      if (ne && typeof ne.pageX === 'number' && typeof ne.pageY === 'number') {
+      if (ne && typeof ne.pageX === "number" && typeof ne.pageY === "number") {
         touchStartRef.current = { x: ne.pageX, y: ne.pageY };
         touchMovedRef.current = false;
       }
@@ -680,7 +707,11 @@ export default function MapContainer({
         }
 
         // Fallback to center coordinate
-        if (mapRef && (mapRef as any).current && typeof (mapRef as any).current.getCenter === 'function') {
+        if (
+          mapRef &&
+          (mapRef as any).current &&
+          typeof (mapRef as any).current.getCenter === "function"
+        ) {
           const center = await (mapRef as any).current.getCenter();
           if (Array.isArray(center) && center.length >= 2) {
             const [longitude, latitude] = center as number[];
@@ -710,9 +741,14 @@ export default function MapContainer({
           // Use onLongPress for location selection; also attach onPress to cover platform differences
           onLongPress={handleMapPress}
           onPress={handleMapPress}
-          onTouchStart={(e) => { handleTouchStart(e); if (onMapPanDrag) onMapPanDrag(); }}
+          onTouchStart={(e) => {
+            handleTouchStart(e);
+            if (onMapPanDrag) onMapPanDrag();
+          }}
           onTouchMove={handleTouchMove}
-          onTouchEnd={(e) => { handleTouchEnd(e); }}
+          onTouchEnd={(e) => {
+            handleTouchEnd(e);
+          }}
           onDidFinishLoadingMap={handleMapReady}
           onCameraChanged={onCameraChanged}
           logoEnabled={false}
@@ -893,51 +929,39 @@ export default function MapContainer({
                 coordinate={[location.longitude, location.latitude]}
                 anchor={{ x: 0.5, y: 0.5 }}
               >
-                {/* Keep the same view tree, toggle visibility to avoid view tag issues */}
-                <View
-                  collapsable={false}
-                  style={{
-                    width: 40,
-                    height: 40,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {/* Background ring used in navigating mode (large blue) */}
-                  <View
-                    style={{
-                      position: 'absolute',
-                      width: 34,
-                      height: 34,
-                      borderRadius: 17,
-                      backgroundColor: '#007AFF',
-                      borderWidth: 3,
-                      borderColor: 'white',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      opacity: isNavigating ? 1 : 0,
-                    }}
-                  >
-                    <View>
-                      <NavigationArrow size={20} color="white" />
-                    </View>
-                  </View>
-
-                  {/* Small ring shown when not navigating — kept in tree but toggled */}
-                  <View
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: 12,
-                      borderWidth: 3,
-                      borderColor: '#007AFF',
-                      backgroundColor: 'transparent',
-                      opacity: isNavigating ? 0 : 1,
-                    }}
-                  />
-                </View>
+                <UserLocationMarker
+                  location={location}
+                  headingAnim={headingAnim}
+                  compassMode={compassMode}
+                  mapHeading={currentHeading}
+                  routeDirection={routeDirection}
+                  isNavigating={isNavigating}
+                  color={userLocationColor || "#007AFF"}
+                />
               </PointAnnotation>
             )}
+
+          {/* Aperçu GPX: flèche transparente à la position du slider */}
+          {isMapReady && isValidCoordObj(previewMarkerCoordinate) && (
+            <PointAnnotation
+              id="gpx-preview-arrow"
+              coordinate={[
+                previewMarkerCoordinate.longitude,
+                previewMarkerCoordinate.latitude,
+              ]}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <View collapsable={false} style={{ opacity: 0.6 }}>
+                <NavigationArrow
+                  size={28}
+                  color="rgba(0,122,255,0.6)"
+                  styleTransform={[
+                    { rotate: `${(previewMarkerBearing || 0).toFixed(2)}deg` },
+                  ]}
+                />
+              </View>
+            </PointAnnotation>
+          )}
 
           {/* Parking sélectionné */}
           {isMapReady &&
@@ -1160,7 +1184,7 @@ export default function MapContainer({
                   id={`sharp-turn-${index}`}
                   coordinate={coordArr}
                 >
-                    <View collapsable={false} style={styles.sharpTurnMarker}>
+                  <View collapsable={false} style={styles.sharpTurnMarker}>
                     <MaterialIcons name="warning" size={12} color="white" />
                   </View>
                 </PointAnnotation>

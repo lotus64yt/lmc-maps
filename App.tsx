@@ -12,9 +12,25 @@ import { MaterialIcons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import * as DocumentPicker from "expo-document-picker";
 import { parseGPX } from "./utils/gpxParser";
+// Fonction utilitaire pour calculer la distance (Haversine)
+function getDistanceMeters(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
+  const toRad = (x: number) => (x * Math.PI) / 180;
+  const R = 6371000; // Rayon de la Terre en mètres
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLon = toRad(b.longitude - a.longitude);
+  const lat1 = toRad(a.latitude);
+  const lat2 = toRad(b.latitude);
+  const aVal =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
+  const c = 2 * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal));
+  return R * c;
+}
 import MapContainer from "./components/MapContainer";
 import ControlButtons from "./components/ControlButtons";
 import ExpandableSearch from "./components/ExpandableSearch";
+import GPXDrawer from "./components/GPXDrawer";
+import GPXStartDrawer from "./components/GPXStartDrawer";
 import RouteDrawer from "./components/RouteDrawer";
 import POIDrawer from "./components/POIDrawer";
 import MultiStepRouteDrawer from "./components/MultiStepRouteDrawer";
@@ -46,6 +62,92 @@ export default function Map() {
 }
 
 function MapContent() {
+  // Modal d'échec de récupération de la position après timeout
+  const [showLocationTimeoutModal, setShowLocationTimeoutModal] = useState(false);
+  const [locationTimeoutId, setLocationTimeoutId] = useState<NodeJS.Timeout | null>(null);
+
+  // Handler pour réessayer la localisation
+  const handleRetryLocation = async () => {
+    setShowLocationTimeoutModal(false);
+    setLocationTimeoutId(null);
+    try {
+      await Location.requestForegroundPermissionsAsync();
+      // Le hook useLocationAndNavigation va relancer la demande automatiquement
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  // Handler pour continuer sans localisation
+  const handleContinueWithoutLocation = () => {
+    setShowLocationTimeoutModal(false);
+    setLocationTimeoutId(null);
+    // Optionnel : désactiver la navigation ou afficher un message
+    // Ici, on ne fait rien de spécial, mais on pourrait désactiver certains boutons
+  };
+  // Modal d'erreur de localisation
+  const [showLocationErrorModal, setShowLocationErrorModal] = useState(false);
+
+  // Récupère la localisation et l'erreur depuis le hook
+  const {
+    location,
+    headingAnim,
+    destination,
+    routeCoords,
+    currentHeading,
+    setDestination,
+    getRoute,
+    getHybridRouteFromCurrentLocation,
+    directLineCoords,
+    nearestRoadPoint,
+    hasDirectLineSegment,
+    routeService,
+    clearRoute,
+    clearRouteKeepDestination,
+    // Nouvelle propriété pour la direction de la route
+    routeDirection,
+    error: locationError,
+  } = useLocationAndNavigation();
+
+  // Pour la couleur du marker utilisateur
+  const [isUserLocationStale, setIsUserLocationStale] = useState(true);
+
+  useEffect(() => {
+    // Timer de 10s pour la récupération de la position
+    if (!location && !showLocationTimeoutModal && !locationTimeoutId) {
+      const timeout = setTimeout(() => {
+        if (!location) {
+          setShowLocationTimeoutModal(true);
+        }
+      }, 10000);
+      setLocationTimeoutId(timeout);
+    }
+    // Si la position est trouvée, clear le timer
+    if (location && locationTimeoutId) {
+      clearTimeout(locationTimeoutId);
+      setLocationTimeoutId(null);
+    }
+    if (location === null && locationError) {
+      setShowLocationErrorModal(true);
+    } else {
+      setShowLocationErrorModal(false);
+    }
+    // Détecter si la position utilisateur est 'stale' (pas encore GPS réel)
+    if (location && typeof location.accuracy === 'number' && location.accuracy < 1000) {
+      setIsUserLocationStale(false);
+    } else if (!location) {
+      setIsUserLocationStale(true);
+    }
+  }, [location, locationError, showLocationTimeoutModal, locationTimeoutId]);
+
+  // Affiche le modal si la localisation est indisponible et qu'une erreur est présente
+  useEffect(() => {
+    if (location === null && locationError) {
+      setShowLocationErrorModal(true);
+    } else {
+      setShowLocationErrorModal(false);
+    }
+  }, [location, locationError]);
   // ...existing code...
   // États de visibilité des drawers/modals (tous regroupés en haut)
   // ...autres useState et logique du composant...
@@ -83,10 +185,53 @@ function MapContent() {
   const [multiStepRouteCoords, setMultiStepRouteCoords] = useState<any[]>([]);
   // Imported GPX preview coordinates (do not override route service data)
   const [importedRouteCoords, setImportedRouteCoords] = useState<
-    { latitude: number; longitude: number }[]
+    { latitude: number; longitude: number; elevation?: number }[]
   >([]);
+  // GPX UI states
+  const [showGpxDrawer, setShowGpxDrawer] = useState(false);
+  const [gpxPreviewIndex, setGpxPreviewIndex] = useState(0);
+  const [previewMarkerCoordinate, setPreviewMarkerCoordinate] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [previewMarkerBearing, setPreviewMarkerBearing] = useState<number>(0);
+  const [gpxStartArrivalVisible, setGpxStartArrivalVisible] = useState(false);
+  const [gpxStartPoint, setGpxStartPoint] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [gpxMinimizeSignal, setGpxMinimizeSignal] = useState(0);
   const [totalDistance, setTotalDistance] = useState<number>(0);
   const [totalDuration, setTotalDuration] = useState<number>(0);
+  // GPX import loading state
+  const [gpxImporting, setGpxImporting] = useState(false);
+  const [gpxImportProgress, setGpxImportProgress] = useState(0);
+
+  const GPX_DRAWER_HEIGHT = 350;
+
+  // Handlers to manage GPX overlays / navigation lifecycle
+  const handleClearGpxOverlays = () => {
+    // remove preview marker and route overlays
+    setPreviewMarkerCoordinate(null);
+    setPreviewMarkerBearing(0);
+    setCompletedRouteCoords([]);
+    setRemainingRouteCoords([]);
+    // don't clear importedRouteCoords itself (the GPX data) unless desired
+  // Clear GPX UI state and steps so the map no longer shows the GPX trace or step markers
+    setGpxPreviewIndex(0);
+    setGpxStartPoint(null);
+    setGpxStartArrivalVisible(false);
+    setNavigationSteps([]);
+  // Remove the imported GPX data entirely (clears the trace and steps forever)
+  setImportedRouteCoords([]);
+  setGpxImporting(false);
+  setGpxImportProgress(0);
+  };
+
+  const handleStartFollowingGpx = () => {
+    if (importedRouteCoords && importedRouteCoords.length > 1) {
+      const gpxSteps = NavigationService.convertGpxTrackToNavigationSteps(importedRouteCoords);
+      NavigationService.startNavigation(gpxSteps, routeService, 'gpx');
+      setNavigationSteps(gpxSteps);
+      setCurrentStepIndex(0);
+      setIsNavigating(true);
+      setShowNavigationGuidance(true);
+    }
+  };
 
   // États pour la navigation
   const [isNavigating, setIsNavigating] = useState(false);
@@ -156,6 +301,8 @@ function MapContent() {
   // États pour le drawer d'arrivée
   const [showArrivalDrawer, setShowArrivalDrawer] = useState(false);
   const [hasReachedDestination, setHasReachedDestination] = useState(false);
+  // When true, arrival logic will not open the ArrivalDrawer on next detected arrival
+  const [suppressArrivalDrawerOnNextArrival, setSuppressArrivalDrawerOnNextArrival] = useState(false);
 
   // État pour le parking sélectionné
   const [selectedParking, setSelectedParking] = useState<{
@@ -184,6 +331,10 @@ function MapContent() {
   // Fonction d'import GPX (factorisée)
   const handleImportGpx = async () => {
     try {
+      // Start importing UI
+      setGpxImporting(true);
+      setGpxImportProgress(0);
+
       const res = await DocumentPicker.getDocumentAsync({ type: "*/*" });
       if (!res.canceled && res.assets && res.assets.length > 0) {
         const asset = res.assets[0];
@@ -192,32 +343,34 @@ function MapContent() {
           asset.name &&
           asset.name.toLowerCase().endsWith(".gpx")
         ) {
+          setGpxImportProgress(10);
           const resp = await fetch(asset.uri);
+          setGpxImportProgress(30);
           const text = await resp.text();
+          setGpxImportProgress(60);
           const parsed = parseGPX(text);
-          const first =
-            parsed.waypoints.length > 0 ? parsed.waypoints[0] : parsed.track[0];
-          if (first) {
-            setSelectedDestination({
-              title: first.name || "Imported GPX",
-              subtitle: "",
-              latitude: first.latitude,
-              longitude: first.longitude,
-            });
-            if (parsed.track && parsed.track.length > 0) {
-              setImportedRouteCoords(
-                parsed.track.map((p) => ({
-                  latitude: p.latitude,
-                  longitude: p.longitude,
-                }))
-              );
-            }
-            setShowRouteDrawer(true);
+          setGpxImportProgress(80);
+          const first = parsed.waypoints.length > 0 ? parsed.waypoints[0] : parsed.track[0];
+          const gpxTrack = parsed.track && parsed.track.length > 0 ? parsed.track : [];
+          if (first && gpxTrack.length > 1) {
+            // Enregistrer le tracé pour la carte et ouvrir le GPXDrawer
+            setImportedRouteCoords(gpxTrack.map((p) => ({ latitude: p.latitude, longitude: p.longitude, elevation: (p as any).elevation })));
+            setGpxStartPoint({ latitude: first.latitude, longitude: first.longitude });
+            setGpxPreviewIndex(0);
+            setShowGpxDrawer(true);
+            setGpxImportProgress(100);
           }
         }
       }
     } catch (e) {
+      setIsRecalculatingRoute(false);
       console.warn("GPX import failed", e);
+    } finally {
+      // ensure we hide importing indicator shortly after completion
+      setTimeout(() => {
+        setGpxImporting(false);
+        setGpxImportProgress(0);
+      }, 350);
     }
   };
   useEffect(() => {
@@ -501,12 +654,13 @@ function MapContent() {
     coordinate: Coordinate,
     zoomLevel?: number,
     pitch?: number,
-    drawerHeight: number = 0 // hauteur du drawer en pixels (0 si aucun)
+  drawerHeight: number = 0, // hauteur du drawer en pixels (0 si aucun)
+  marginPx: number = 80
   ) => {
-    const screenHeight = Dimensions.get("window").height;
+  const screenHeight = Dimensions.get("window").height;
 
-    // Si aucun drawer, conserver le comportement centré par défaut
-    if (!drawerHeight || drawerHeight <= 0) {
+  // Si aucun drawer, conserver le comportement centré par défaut
+  if (!drawerHeight || drawerHeight <= 0) {
       return {
         latitude: coordinate.latitude,
         longitude: coordinate.longitude,
@@ -514,10 +668,10 @@ function MapContent() {
       };
     }
 
-    // Placer le POI légèrement au-dessus du drawer (marge fixe) plutôt que
-    // centrer la zone visible — évite des offsets trop importants.
-    const DEFAULT_MARGIN_PX = 80; // distance en pixels au-dessus du drawer
-    const margin = DEFAULT_MARGIN_PX;
+  // Placer le POI légèrement au-dessus du drawer (marge fixe) plutôt que
+  // centrer la zone visible — évite des offsets trop importants.
+  const DEFAULT_MARGIN_PX = marginPx; // distance en pixels au-dessus du drawer (configurable)
+  const margin = DEFAULT_MARGIN_PX;
 
     // Calculer la position Y désirée en pixels depuis le haut de l'écran
     let desiredY = screenHeight - drawerHeight - margin;
@@ -542,32 +696,21 @@ function MapContent() {
     const offsetMeters = pixelOffset * metersPerPixel;
     const offsetLat = offsetMeters / metersPerDegreeLat;
 
+    // Positive pixelOffset means the desired Y is below the screen center (visual point lower).
+    // Apply damping and clamp to avoid huge jumps (caused by low zoom or large margins).
+  const DAMPING = 0.01; // very small damping to keep adjustments to a few meters
+  const MAX_OFFSET_DEG = 0.001; // hard clamp (~111m) to avoid crossing large distances
+    const raw = offsetLat * DAMPING;
+    const clamped = Math.sign(raw) * Math.min(Math.abs(raw), MAX_OFFSET_DEG);
+
+    // Use additive offset: increase latitude to move the visual point down on the screen at typical map projections
     return {
-      latitude: coordinate.latitude + offsetLat,
+      latitude: coordinate.latitude + clamped,
       longitude: coordinate.longitude,
       pitch: pitch || 0,
     };
   };
-
-  const {
-    location,
-    headingAnim,
-    destination,
-    routeCoords,
-    currentHeading,
-    setDestination,
-    getRoute,
-    getHybridRouteFromCurrentLocation,
-    directLineCoords,
-    nearestRoadPoint,
-    hasDirectLineSegment,
-    routeService,
-    clearRoute,
-    clearRouteKeepDestination,
-    // Nouvelle propriété pour la direction de la route
-    routeDirection,
-  } = useLocationAndNavigation();
-
+  
   const {
     recenterMap,
     animateToCoordinate,
@@ -863,6 +1006,22 @@ function MapContent() {
     }
   }, [location, destination, isNavigating, hasReachedDestination]);
 
+  // Surveiller l'arrivée au départ du GPX quand on a demandé "Naviguer jusqu'au départ"
+  useEffect(() => {
+    if (!location || !gpxStartPoint) return;
+    // Seulement si on est en train d'aller au départ (showNavigationGuidance || isNavigating)
+    const dist = getDistanceBetweenPoints(
+      location.latitude,
+      location.longitude,
+      gpxStartPoint.latitude,
+      gpxStartPoint.longitude
+    );
+    const threshold = 30; // mètres
+    if (dist <= threshold) {
+      setGpxStartArrivalVisible(true);
+    }
+  }, [location?.latitude, location?.longitude, gpxStartPoint?.latitude, gpxStartPoint?.longitude]);
+
   // Fonction pour calculer la distance entre deux points (formule haversine)
   const getDistanceBetweenPoints = (
     lat1: number,
@@ -1096,15 +1255,26 @@ function MapContent() {
           // En cas d'erreur, arrêter la navigation
           setIsNavigating(false);
           setHasReachedDestination(true);
-          setShowArrivalDrawer(true);
+          if (suppressArrivalDrawerOnNextArrival) {
+            setSuppressArrivalDrawerOnNextArrival(false);
+          } else {
+            setShowArrivalDrawer(true);
+          }
         } finally {
           setIsRecalculatingRoute(false);
         }
       } else {
         // Arrivée à la destination finale
-        setHasReachedDestination(true);
-        setShowArrivalDrawer(true);
-        setIsNavigating(false);
+          setHasReachedDestination(true);
+          // If we previously set a suppress flag (e.g. navigating to parking), do not open the ArrivalDrawer
+          if (suppressArrivalDrawerOnNextArrival) {
+            // Clear suppress flag and stop navigation quietly
+            setSuppressArrivalDrawerOnNextArrival(false);
+            setIsNavigating(false);
+          } else {
+            setShowArrivalDrawer(true);
+            setIsNavigating(false);
+          }
 
         // Zoom pour voir à la fois la destination et la position utilisateur avec ajustement pour le drawer
         const midLat = (destination.latitude + location.latitude) / 2;
@@ -1776,6 +1946,9 @@ function MapContent() {
 
     // Effacer la route quand on arrête la navigation
     clearRoute();
+
+  // Reset any suppression flags so arrival UI behaves normally next time
+  setSuppressArrivalDrawerOnNextArrival(false);
   };
 
   const handleCloseDrawer = () => {
@@ -2037,8 +2210,11 @@ function MapContent() {
       } else {
       }
 
-      // Fermer le drawer de parking
+  // Fermer le drawer de parking
       setShowParkingDrawer(false);
+
+  // Suppress the ArrivalDrawer when this navigation completes (we handle parking arrival differently)
+  setSuppressArrivalDrawerOnNextArrival(true);
 
       // Réinitialiser l'état d'arrivée
       setHasReachedDestination(false);
@@ -2102,16 +2278,69 @@ function MapContent() {
 
   return (
     <View style={styles.container}>
-      {/* Bouton flottant d'import GPX, visible si aucun drawer/modal n'est ouvert */}
-      {canShowGpxImport && (
-        <TouchableOpacity
-          style={styles.gpxImportButton}
-          onPress={handleImportGpx}
-          activeOpacity={0.8}
-        >
-          <MaterialIcons name="file-upload" size={28} color="#007AFF" />
-        </TouchableOpacity>
-      )}
+      {/* Modal d'échec de récupération de la position après 10s */}
+      <Modal
+        visible={showLocationTimeoutModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowLocationTimeoutModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <MaterialIcons name="location-off" size={32} color="#FF9500" />
+              <Text style={styles.modalTitle}>Localisation non trouvée</Text>
+            </View>
+            <Text style={styles.modalDescription}>
+              Impossible de récupérer votre position après 10 secondes. Vérifiez les autorisations ou réessayez.
+            </Text>
+            <View style={styles.modalButtonsVertical}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={handleRetryLocation}
+              >
+                <MaterialIcons name="refresh" size={20} color="#FFF" />
+                <Text style={styles.modalButtonTextPrimary}>Réessayer</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonSecondary]}
+                onPress={handleContinueWithoutLocation}
+              >
+                <MaterialIcons name="block" size={20} color="#FF3B30" />
+                <Text style={styles.modalButtonTextSecondary}>Continuer sans localisation</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={showLocationErrorModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowLocationErrorModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <MaterialIcons name="location-off" size={32} color="#FF3B30" />
+              <Text style={styles.modalTitle}>Problème de localisation</Text>
+            </View>
+            <Text style={styles.modalDescription}>
+              Impossible de récupérer votre position actuelle. Vérifiez que les services de localisation sont activés et que l'application a l'autorisation d'accéder à la localisation.
+            </Text>
+            <View style={styles.modalButtonsVertical}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonPrimary]}
+                onPress={() => setShowLocationErrorModal(false)}
+              >
+                <MaterialIcons name="close" size={20} color="#FFF" />
+                <Text style={styles.modalButtonTextPrimary}>Fermer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Modal de reprise de trajet */}
       <ResumeTripModal
         visible={resumeModalVisible}
@@ -2172,6 +2401,7 @@ function MapContent() {
               }
             }
           }}
+          
         />
       )}
 
@@ -2279,6 +2509,7 @@ function MapContent() {
                         parsed.track.map((p) => ({
                           latitude: p.latitude,
                           longitude: p.longitude,
+                          elevation: (p as any).elevation,
                         }))
                       );
                     }
@@ -2304,15 +2535,16 @@ function MapContent() {
           location={location}
           headingAnim={headingAnim}
           destination={destination}
-          routeCoords={
-            importedRouteCoords && importedRouteCoords.length > 0
-              ? importedRouteCoords
-              : routeCoords
-          }
+          routeCoords={routeCoords}
+          gpxRouteCoords={importedRouteCoords}
           onLongPress={handleMapPress}
           compassMode={compassMode}
           currentHeading={currentHeading}
-          onMapPanDrag={handleMapPanDrag}
+          onMapPanDrag={() => {
+            handleMapPanDrag();
+            // Minimiser GPXDrawer si ouvert
+            if (showGpxDrawer) setGpxMinimizeSignal((s) => s + 1);
+          }}
           pois={allPOIs}
           selectedPOI={selectedPOI}
           isFirstLoad={!location}
@@ -2337,6 +2569,8 @@ function MapContent() {
           progressPercentage={progressPercentage}
           // Nouvelle prop pour la direction de la route
           routeDirection={routeDirection}
+          previewMarkerCoordinate={previewMarkerCoordinate}
+          previewMarkerBearing={previewMarkerBearing}
         />
 
         <ControlButtons
@@ -2388,6 +2622,119 @@ function MapContent() {
           lastRequestTimings={
             routeService ? routeService.lastRequestTimings : undefined
           }
+        />
+
+        {/* GPX Drawer */}
+        <GPXDrawer
+          visible={showGpxDrawer}
+          track={importedRouteCoords}
+          onClose={() => { if (handleClearGpxOverlays) handleClearGpxOverlays(); setShowGpxDrawer(false); setPreviewMarkerCoordinate(null); reactivateFollowMode(); }}
+          userLocation={location ? { latitude: location.latitude, longitude: location.longitude } : null}
+          onNavigateToStart={async (start) => {
+            // Démarre NavigationGuidance avec un routeRequest jusqu'au départ GPX
+            if (location) {
+              // Populate the route overlay so the map displays the path to the GPX start
+              try {
+                await getHybridRouteFromCurrentLocation(start, navigationMode || 'driving');
+              } catch (e) {
+                // ignore, NavigationGuidance will still request the route if needed
+              }
+
+              // Ensure the map recenters on the user (re-activate follow mode)
+              try {
+                reactivateFollowMode();
+              } catch (e) {
+                // best-effort
+              }
+
+              setPendingRouteRequest({ start: { latitude: location.latitude, longitude: location.longitude }, end: start, mode: navigationMode || 'driving' });
+              setShowNavigationGuidance(true);
+              setIsRecalculatingRoute(true);
+              // Surveiller l'arrivée au point de départ et ouvrir GPXStartDrawer
+              setGpxStartPoint(start);
+              // Un check léger basé sur useEffect de location plus bas peut ouvrir le drawer
+            }
+            setShowGpxDrawer(false);
+          }}
+      onPreviewIndexChange={(idx) => {
+            setGpxPreviewIndex(idx);
+            // Optionnel: centrer la caméra sur le point en sécurisant l'accès
+            const hasCoords = Array.isArray(importedRouteCoords) && importedRouteCoords.length > 0;
+            const pt = hasCoords && idx >= 0 && idx < importedRouteCoords.length ? importedRouteCoords[idx] : null;
+            if (!pt) return;
+
+            const adjustedCoord = getAdjustedCoordinate({ latitude: pt.latitude, longitude: pt.longitude }, 15, undefined, GPX_DRAWER_HEIGHT, 140);
+            animateToCoordinateLocked(adjustedCoord, 15);
+
+            // Préparer le marqueur d'aperçu (flèche transparente) en utilisant des fallbacks sûrs
+            const prev = hasCoords ? importedRouteCoords[Math.max(0, idx - 1)] || pt : pt;
+            const next = hasCoords ? importedRouteCoords[Math.min(importedRouteCoords.length - 1, idx + 1)] || pt : pt;
+            const toRad = (x: number) => (x * Math.PI) / 180;
+            const dy = (next.longitude || 0) - (prev.longitude || 0);
+            const y = Math.sin(toRad(dy)) * Math.cos(toRad(next.latitude || 0));
+            const x =
+              Math.cos(toRad(prev.latitude || 0)) * Math.sin(toRad(next.latitude || 0)) -
+              Math.sin(toRad(prev.latitude || 0)) * Math.cos(toRad(next.latitude || 0)) * Math.cos(toRad(dy));
+            let bearing = (Math.atan2(y, x) * 180) / Math.PI;
+            if (bearing < 0) bearing += 360;
+            setPreviewMarkerCoordinate({ latitude: pt.latitude, longitude: pt.longitude });
+            setPreviewMarkerBearing(bearing);
+
+            // Simuler la progression sur la carte quand on n'est pas en navigation
+            if (!isNavigating && hasCoords) {
+              const completed = importedRouteCoords.slice(0, Math.max(1, idx + 1));
+              const remaining = importedRouteCoords.slice(Math.max(1, idx + 1));
+              setCompletedRouteCoords(completed);
+              setRemainingRouteCoords(remaining);
+              const pct = importedRouteCoords.length > 1 ? (idx / (importedRouteCoords.length - 1)) * 100 : 0;
+              setProgressPercentage(pct);
+            }
+          }}
+          previewIndex={gpxPreviewIndex}
+          minimizeSignal={gpxMinimizeSignal}
+          onOpened={() => {
+            // Désactiver temporairement le recentrage auto quand le GPXDrawer s'ouvre
+            disableFollowModeTemporarily();
+            // Fit the camera to show the entire GPX route above the drawer
+            if (importedRouteCoords && importedRouteCoords.length > 1 && fitToRoute) {
+              // Use current location as start if available
+              const startCoord = location ? { latitude: location.latitude, longitude: location.longitude } : importedRouteCoords[0];
+              fitToRoute(startCoord, importedRouteCoords[importedRouteCoords.length - 1], importedRouteCoords, true);
+              // Nudge camera slightly upward (higher on screen) after fitToRoute finishes
+              setTimeout(() => {
+                const n = importedRouteCoords.length;
+                const mid = importedRouteCoords[Math.floor(n / 2)];
+                if (mid) {
+                  const adjustedMid = getAdjustedCoordinate(mid, undefined, undefined, GPX_DRAWER_HEIGHT, 140);
+                  animateToCoordinateLocked(adjustedMid);
+                }
+              }, 450);
+            }
+          }}
+          importing={gpxImporting}
+          importProgress={gpxImportProgress}
+          onClearRoute={handleClearGpxOverlays}
+          onStopNavigation={handleStopNavigation}
+          onStartFollowingTrack={handleStartFollowingGpx}
+        />
+
+        {/* Drawer d'arrivée au départ GPX */}
+        <GPXStartDrawer
+          visible={gpxStartArrivalVisible}
+          start={gpxStartPoint}
+          onStartGpx={() => {
+            if (importedRouteCoords && importedRouteCoords.length > 1) {
+              const gpxSteps = NavigationService.convertGpxTrackToNavigationSteps(importedRouteCoords);
+              NavigationService.startNavigation(gpxSteps, routeService, 'gpx');
+              setNavigationSteps(gpxSteps);
+              setCurrentStepIndex(0);
+              setIsNavigating(true);
+              setShowRouteDrawer(false);
+              setGpxStartArrivalVisible(false);
+              setShowNavigationGuidance(true);
+            }
+          }}
+          onClose={() => setGpxStartArrivalVisible(false)}
         />
 
         <POIDrawer
@@ -2480,6 +2827,7 @@ function MapContent() {
             };
             handleSelectLocation(dest as any);
           }}
+         
         />
 
         <MultiStepRouteDrawer
@@ -2544,8 +2892,15 @@ function MapContent() {
             // Keep isNavigating true and ensure route is not cleared during navigation
             setIsNavigating(true);
             setIsRecalculatingRoute(false);
+            // Si on allait au départ GPX, continuer la surveillance d'arrivée
           }}
         />
+
+  {/* Détection d'arrivée au départ du GPX (ouvre le drawer pour lancer la nav GPX) */}
+  {/* Note: cette logique reste passive et n'interfère pas avec les trajets classiques */}
+  {null}
+
+  {/* Effet hors-render: surveiller l'arrivée au point de départ GPX quand on a lancé la nav vers ce point */}
 
         <LocationInfoDrawer
           visible={showLocationInfoDrawer}
@@ -2737,20 +3092,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     height: "100%",
-  },
-  gpxImportButton: {
-    position: "absolute",
-    bottom: 32,
-    right: 24,
-    backgroundColor: "#fff",
-    borderRadius: 28,
-    padding: 12,
-    elevation: 5,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.18,
-    shadowRadius: 3.84,
-    zIndex: 1001,
   },
   multiStepButton: {
     position: "absolute",

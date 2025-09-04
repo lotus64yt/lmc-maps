@@ -137,11 +137,12 @@ export function useLocationAndNavigation() {
   };
 
   return {
-    // Services de localisation
-    location: locationService.location,
-    heading: locationService.heading,
-    headingAnim: locationService.headingAnim,
-    currentHeading: locationService.currentHeading,
+  // Services de localisation
+  location: locationService.location,
+  heading: locationService.heading,
+  headingAnim: locationService.headingAnim,
+  currentHeading: locationService.currentHeading,
+  error: locationService.error,
     
     // Services de routes
     routeCoords: routeService.routeCoords,
