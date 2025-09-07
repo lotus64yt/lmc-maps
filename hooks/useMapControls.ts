@@ -66,8 +66,9 @@ export function useMapControls() {
 
       let pitch = 0;
       let zoom = 16;
-      // Animation plus fluide pour la navigation
-      let animationDuration = navigationMode === "driving" ? 400 : 600; // Plus rapide
+  // Animation plus fluide et plus réactive pour la navigation
+  // Durées réduites pour avoir un rendu plus fluide sans latence perceptible
+  let animationDuration = navigationMode === "driving" ? 250 : 400;
 
       let cameraConfig: any = {
         centerCoordinate: [userLocation.longitude, userLocation.latitude],
@@ -138,8 +139,9 @@ export function useMapControls() {
         // Si compassMode === "heading", on laisse updateMapHeading gérer le heading
       }
 
-      // Forcer la mise à jour quand on est en navigation pour s'assurer que la map suit
-      setCameraConfig(cameraConfig, isNavigating, CONTROLLER_ID);
+  // Forcer la mise à jour quand on est en navigation pour s'assurer que la map suit
+  // Use controller id so drawer/other controllers don't block navigation updates
+  setCameraConfig(cameraConfig, true, CONTROLLER_ID);
 
       lastIntersectionDistance.current = distanceToNextStep || 1000;
     },
@@ -263,7 +265,7 @@ export function useMapControls() {
             centerCoordinate: [location.longitude, location.latitude],
             animationDuration: animationDuration,
           },
-          false,
+          true,
           CONTROLLER_ID
         );
       }
@@ -410,7 +412,59 @@ export function useMapControls() {
       viewportPadding = { ...currentViewportPadding, bottom: 400 }; // 300px pour la hauteur approximative du RouteDrawer
     }
 
-    fitToCoordinates(coordinates, 80, 1500, viewportPadding); // Plus de padding et animation plus lente pour les routes
+    // Compute bounds and choose zoom similar to MapViewContext.fitToCoordinates,
+    // but apply the camera change as forced with this controller id so it is
+    // honored even when other controllers have claimed the camera.
+    if (!coordinates || coordinates.length === 0) return;
+
+    // Calculate bounds
+    let minLat = coordinates[0][1];
+    let maxLat = coordinates[0][1];
+    let minLon = coordinates[0][0];
+    let maxLon = coordinates[0][0];
+    coordinates.forEach(([lon, lat]) => {
+      minLat = Math.min(minLat, lat);
+      maxLat = Math.max(maxLat, lat);
+      minLon = Math.min(minLon, lon);
+      maxLon = Math.max(maxLon, lon);
+    });
+
+    const centerLat = (minLat + maxLat) / 2;
+    const centerLon = (minLon + maxLon) / 2;
+
+    const latDiff = maxLat - minLat;
+    const lonDiff = maxLon - minLon;
+    const verticalPaddingFactor = 1 + (viewportPadding.bottom || 0) / 400;
+    const horizontalPaddingFactor = 1 + (viewportPadding.left || 0) / 400;
+
+    const adjustedLatDiff = latDiff * verticalPaddingFactor;
+    const adjustedLonDiff = lonDiff * horizontalPaddingFactor;
+    const maxDiff = Math.max(adjustedLatDiff, adjustedLonDiff);
+
+    let zoom = 10;
+    if (maxDiff < 0.001) zoom = 16;
+    else if (maxDiff < 0.005) zoom = 14;
+    else if (maxDiff < 0.01) zoom = 13;
+    else if (maxDiff < 0.05) zoom = 11;
+    else if (maxDiff < 0.1) zoom = 10;
+    else if (maxDiff < 0.5) zoom = 8;
+    else if (maxDiff < 1) zoom = 7;
+    else zoom = 6;
+
+  // Apply a small zoom boost so the fitted route appears a bit closer
+  const ZOOM_BOOST = 1.2;
+  zoom = Math.min(20, zoom + ZOOM_BOOST);
+
+    // Apply camera change forced by this controller so it's not blocked
+    setCameraConfig(
+      {
+        centerCoordinate: [centerLon, centerLat],
+        zoomLevel: zoom,
+        animationDuration: 1500,
+      },
+      true,
+      CONTROLLER_ID
+    );
   };
 
   // Fonction pour définir le padding du drawer

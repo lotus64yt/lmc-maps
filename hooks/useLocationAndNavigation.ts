@@ -172,7 +172,13 @@ export function useLocationAndNavigation() {
     
     // Nouvelles méthodes de surveillance de route
     isOnRoute: routeService.isOnRoute,
-    recalculateIfOffRoute: routeService.recalculateIfOffRoute,
+    // Backwards-compatible wrapper: returns boolean
+    recalculateIfOffRoute: async (loc: { latitude: number; longitude: number }) => {
+      const res = await routeService.recalculateIfOffRoute(loc);
+      return !!res;
+    },
+    // New API: returns the start Coordinate used for recalculation or false
+    recalculateIfOffRouteStart: routeService.recalculateIfOffRoute,
     
     // Service de route pour passer à NavigationService
     routeService,

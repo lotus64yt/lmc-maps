@@ -30,8 +30,10 @@ export interface RouteService {
   nearestRoadPoint: Coordinate | null;
   hasDirectLineSegment: boolean;
   getHybridRoute: (start: Coordinate, end: Coordinate, mode?: string) => Promise<boolean>;
+  getDistanceToRoute: (location: Coordinate) => number;
+  detectOffRoute: (location: Coordinate, tolerance?: number) => boolean;
   isOnRoute: (currentLocation: Coordinate, tolerance?: number) => boolean;
-  recalculateIfOffRoute: (currentLocation: Coordinate, mode?: string) => Promise<boolean>;
+  recalculateIfOffRoute: (currentLocation: Coordinate, mode?: string) => Promise<Coordinate | false>;
   lastRequestTimings: { host: string; durationMs: number; success: boolean; endpoint?: string }[];
   lastRawRouteData?: any | null;
 }
@@ -97,19 +99,87 @@ export function useRouteService(): RouteService {
   };
 
   const calculateDistanceToLineSegment = (point: Coordinate, a: Coordinate, b: Coordinate) => {
-    const A = point.longitude - a.longitude;
-    const B = point.latitude - a.latitude;
-    const C = b.longitude - a.longitude;
-    const D = b.latitude - a.latitude;
-    const dot = A * C + B * D;
-    const lenSq = C * C + D * D;
-    if (lenSq === 0) return calculateDistance(point, a);
+  // Use the central projection helper to compute the closest point, then compute haversine distance.
+  if (!a || !b) return calculateDistance(point, a);
+  const proj = getClosestPointOnSegment(point, a, b);
+  return calculateDistance(point, proj);
+  };
+
+  // Project a point onto a segment and return the projected Coordinate
+  const getClosestPointOnSegment = (point: Coordinate, a: Coordinate, b: Coordinate): Coordinate => {
+    // Project using a simple equirectangular approximation in meter-space for better accuracy
+    // Compute vector AB and AP in meters (using mean latitude for longitude scaling), then
+    // compute parameter along AB and interpolate back to lat/lon.
+    const R = 6371000; // earth radius meters
+    const toRad = toRadians;
+    const latMean = toRad((a.latitude + b.latitude) / 2);
+
+    const ax = 0; // origin at point a
+    const ay = 0;
+
+    const bx = (toRad(b.longitude - a.longitude)) * Math.cos(latMean) * R;
+    const by = (toRad(b.latitude - a.latitude)) * R;
+
+    const px = (toRad(point.longitude - a.longitude)) * Math.cos(latMean) * R;
+    const py = (toRad(point.latitude - a.latitude)) * R;
+
+    const dot = px * bx + py * by;
+    const lenSq = bx * bx + by * by;
+    if (lenSq === 0) return a;
     let param = dot / lenSq;
-    let xx: number, yy: number;
-    if (param < 0) { xx = a.longitude; yy = a.latitude; }
-    else if (param > 1) { xx = b.longitude; yy = b.latitude; }
-    else { xx = a.longitude + param * C; yy = a.latitude + param * D; }
-    return calculateDistance(point, { longitude: xx, latitude: yy });
+    if (param <= 0) return { latitude: a.latitude, longitude: a.longitude };
+    if (param >= 1) return { latitude: b.latitude, longitude: b.longitude };
+
+    // Interpolate by param in degree-space (param is unitless along the segment)
+    const lon = a.longitude + param * (b.longitude - a.longitude);
+    const lat = a.latitude + param * (b.latitude - a.latitude);
+    return { latitude: lat, longitude: lon };
+  };
+
+  // Find the nearest point on the current route polyline to the given location.
+  // Returns a Coordinate on the route (projected) or null if route is not available.
+  const getNearestPointOnRoute = (location: Coordinate): Coordinate | null => {
+    if (!routeCoords || routeCoords.length < 2) return null;
+    let bestPoint: Coordinate | null = null;
+    let bestDist = Infinity;
+    for (let i = 0; i < routeCoords.length - 1; i++) {
+      const a = routeCoords[i];
+      const b = routeCoords[i + 1];
+      const proj = getClosestPointOnSegment(location, a, b);
+      const d = calculateDistance(location, proj);
+      if (d < bestDist) {
+        bestDist = d;
+        bestPoint = proj;
+      }
+    }
+    return bestPoint;
+  };
+
+  // Compute minimal distance (meters) from a location to the current route polyline.
+  // Returns Infinity if route isn't available.
+  const getDistanceToRoute = (location: Coordinate): number => {
+    const routePointCount = routeCoords ? routeCoords.length : 0;
+    console.log('[RouteService.getDistanceToRoute]', { lat: location.latitude, lon: location.longitude, routePointCount });
+    if (!routeCoords || routeCoords.length < 2) {
+      console.log('[RouteService.getDistanceToRoute] no route available');
+      return Infinity;
+    }
+    let bestDist = Infinity;
+    for (let i = 0; i < routeCoords.length - 1; i++) {
+      const a = routeCoords[i];
+      const b = routeCoords[i + 1];
+      const d = calculateDistanceToLineSegment(location, a, b);
+      if (d < bestDist) bestDist = d;
+    }
+    console.log('[RouteService.getDistanceToRoute.result]', { bestDist });
+    return bestDist;
+  };
+
+  // Detect if a location is off-route based on a tolerance (meters).
+  // Returns true when the minimal distance to the route exceeds the tolerance.
+  const detectOffRoute = (location: Coordinate, tolerance: number = 20): boolean => {
+    const d = getDistanceToRoute(location);
+    return d === Infinity ? false : d > tolerance;
   };
 
   const isOnRoute = (currentLocation: Coordinate, tolerance = 50) => {
@@ -433,8 +503,15 @@ export function useRouteService(): RouteService {
 
   const recalculateIfOffRoute = async (currentLocation: Coordinate, mode: string = 'driving') => {
     if (!destination) return false;
-    const onRoute = isOnRoute(currentLocation, 100);
-    if (!onRoute) return await getHybridRoute(currentLocation, destination, mode);
+  // Use a default 20m tolerance for off-route detection to match requested behavior.
+  const OFF_ROUTE_TOLERANCE = 20;
+    const onRoute = isOnRoute(currentLocation, OFF_ROUTE_TOLERANCE);
+    if (!onRoute) {
+      const nearestOnRoute = getNearestPointOnRoute(currentLocation);
+      const startForRecalc = nearestOnRoute || currentLocation;
+      const ok = await getHybridRoute(startForRecalc, destination, mode);
+      return ok ? startForRecalc : false;
+    }
     return false;
   };
 
@@ -467,7 +544,9 @@ export function useRouteService(): RouteService {
     directLineCoords,
     nearestRoadPoint,
     hasDirectLineSegment,
-    isOnRoute,
-    recalculateIfOffRoute,
+  isOnRoute,
+  detectOffRoute,
+  recalculateIfOffRoute,
+  getDistanceToRoute,
   };
 }

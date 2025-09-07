@@ -17,6 +17,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
+import SettingsOverlay from "./SettingsOverlay";
 import {
   NominatimService,
   NominatimSearchResult,
@@ -234,6 +235,7 @@ export default function ExpandableSearch({
 }: ExpandableSearchProps) {
   const { width: windowWidth } = useWindowDimensions();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showSettingsOverlay, setShowSettingsOverlay] = useState(false);
   // Accordion state for POI categories (collapsed by default)
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const animatedHeightsRef = useRef<Record<string, Animated.Value>>({});
@@ -1026,12 +1028,14 @@ export default function ExpandableSearch({
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.searchButton}
-            onPress={handleSearchPress}
+            onPress={() => setShowSettingsOverlay(true)}
           >
-            <Icon name="search" size={24} color="#666" />
+            <Icon name="settings" size={24} color="#666" />
           </TouchableOpacity>
         </View>
       )}
+
+  <SettingsOverlay visible={showSettingsOverlay} onClose={() => setShowSettingsOverlay(false)} onImportGpx={onImportGpx} />
 
       {/* Modal de recherche expandée */}
       <Modal
@@ -1326,21 +1330,7 @@ export default function ExpandableSearch({
               />
             )}
           </Animated.View>
-          {/* GPX import button at the bottom of expanded modal */}
-          <View style={{ alignItems: 'center', marginBottom: 16, marginTop: 8 }}>
-            <TouchableOpacity
-              style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#F0F8FF', borderRadius: 24, paddingVertical: 10, paddingHorizontal: 20, elevation: 2 }}
-              onPress={() => {
-                // Fermer le modal d'expansion puis déclencher l'import GPX
-                handleClose();
-                if (onImportGpx) onImportGpx();
-              }}
-              activeOpacity={0.8}
-            >
-              <Icon name="file-upload" size={22} color="#007AFF" style={{ marginRight: 8 }} />
-              <Text style={{ color: '#007AFF', fontWeight: 'bold', fontSize: 15 }}>Importer un fichier GPX</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Import moved to SettingsOverlay */}
         </SafeAreaView>
       </Modal>
     </>

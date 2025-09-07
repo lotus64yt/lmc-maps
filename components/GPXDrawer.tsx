@@ -10,7 +10,6 @@ import {
   Vibration,
 } from "react-native";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
-import Slider from "@react-native-community/slider";
 import Svg, { Polyline, Line, Polygon, Text as SvgText } from "react-native-svg";
 
 export interface GPXPoint {
@@ -25,7 +24,7 @@ interface GPXDrawerProps {
   onClose: () => void;
   userLocation: { latitude: number; longitude: number } | null;
   onNavigateToStart: (start: { latitude: number; longitude: number }) => void;
-  onPreviewIndexChange: (index: number) => void;
+  onPreviewIndexChange?: (index: number) => void;
   previewIndex?: number;
   onOpened?: () => void;
   minimizeSignal?: number; // change value to request minimize-to-peek
@@ -199,40 +198,6 @@ export default function GPXDrawer({
     return arr;
   }, [track]);
 
-  // Map current previewIndex to slider position (nearest in the index map)
-  const sliderPosition = useMemo(() => {
-    if (!originalIndexMap.length) return 0;
-    // exact match
-    const exact = originalIndexMap.indexOf(previewIndex);
-    if (exact !== -1) return exact;
-    // nearest
-    let bestIdx = 0;
-    let bestDist = Infinity;
-    for (let i = 0; i < originalIndexMap.length; i++) {
-      const d = Math.abs(originalIndexMap[i] - previewIndex);
-      if (d < bestDist) {
-        bestDist = d;
-        bestIdx = i;
-      }
-    }
-    return bestIdx;
-  }, [originalIndexMap, previewIndex]);
-
-  // Local slider position to keep the thumb responsive while dragging
-  const [localSliderPos, setLocalSliderPos] = useState(sliderPosition);
-  const [isSliding, setIsSliding] = useState(false);
-  const lastSentIndexRef = useRef<number | null>(null);
-  const lastSentTimeRef = useRef<number>(0);
-
-  // Keep local slider position in sync with external previewIndex when
-  // the user isn't actively dragging the thumb to avoid feedback loops.
-  useEffect(() => {
-    if (isSliding) return;
-    const pos = sliderPosition;
-    if (typeof pos === "number" && pos !== localSliderPos) {
-      setLocalSliderPos(pos);
-    }
-  }, [sliderPosition, isSliding]);
 
   // Arrival detection: when navigatingToStart is true, watch userLocation
   // and mark arrived when within ARRIVAL_THRESHOLD meters of the start point.
@@ -294,12 +259,6 @@ export default function GPXDrawer({
     return pts.join(" ");
   }, [elevationSeries, elevationMax, elevationMin, sparkWidth]);
 
-  const selectedX =
-    (localSliderPos / Math.max(1, originalIndexMap.length - 1)) * sparkWidth;
-  const selectedElevation =
-    elevationSeries && elevationSeries.length > 0
-      ? elevationSeries[Math.min(localSliderPos, elevationSeries.length - 1)] ?? 0
-      : 0;
   const scaleY = (val: number) => {
     if (elevationMax === elevationMin) {
       return sparkPadding + (sparkHeight - 2 * sparkPadding) / 2;
@@ -307,7 +266,6 @@ export default function GPXDrawer({
     const t = (val - elevationMin) / (elevationMax - elevationMin);
     return sparkPadding + (1 - t) * (sparkHeight - 2 * sparkPadding);
   };
-  const selectedY = scaleY(selectedElevation);
 
   if (!visible || !track || track.length === 0) return null;
 
@@ -413,31 +371,10 @@ export default function GPXDrawer({
               </TouchableOpacity>
             </View>
           ) : null}
-          {hasElevation && (
+      {hasElevation && (
             <View style={styles.elevationContainer}>
               <Svg width={sparkWidth} height={sparkHeight}>
-                {/* Barre verticale */}
-                <Line
-                  x1={selectedX}
-                  y1={sparkHeight - sparkPadding}
-                  x2={selectedX}
-                  y2={selectedY}
-                  stroke="#FF3B30"
-                  strokeWidth={1.5}
-                  strokeDasharray="4 2"
-                />
-
-                {/* Étiquette altitude */}
-                <SvgText
-                  x={selectedX}
-                  y={selectedY - 6}
-                  fontSize="10"
-                  fontWeight="bold"
-                  fill="#FF3B30"
-                  textAnchor="middle"
-                >
-                  {`${Math.round(selectedElevation)} m`}
-                </SvgText>
+        {/* sparkline only - no preview marker */}
 
                 <Line
                   x1={0}
@@ -468,45 +405,7 @@ export default function GPXDrawer({
               </Svg>
             </View>
           )}
-          <Text style={styles.previewLabel}>Position sur le parcours</Text>
-          <Slider
-            style={{ width: "100%", height: 40 }}
-            minimumValue={0}
-            maximumValue={Math.max(0, originalIndexMap.length - 1)}
-            step={1}
-            minimumTrackTintColor="#007AFF"
-            maximumTrackTintColor="#D1D1D6"
-            thumbTintColor="#007AFF"
-            value={localSliderPos}
-            onSlidingStart={() => {
-              setIsSliding(true);
-            }}
-            onValueChange={(v) => {
-              const pos = Math.round(v);
-              setLocalSliderPos(pos);
-            }}
-            onSlidingComplete={(v) => {
-              setIsSliding(false);
-              const pos = Math.round(v);
-              const mapped = originalIndexMap[Math.min(pos, originalIndexMap.length - 1)] ?? 0;
-              // avoid redundant parent calls
-              if (lastSentIndexRef.current !== mapped) {
-                lastSentIndexRef.current = mapped;
-                lastSentTimeRef.current = Date.now();
-                onPreviewIndexChange(mapped);
-              }
-            }}
-          />
-          <View style={styles.previewInfoRow}>
-            <Text style={styles.previewInfoText}>
-              Point {Math.min(previewIndex + 1, track.length)}/{track.length}
-            </Text>
-            <Text style={styles.previewInfoText}>
-              {track[previewIndex] && previewIndex >= 0 && previewIndex < track.length
-                ? `${track[previewIndex].latitude.toFixed(5)}, ${track[previewIndex].longitude.toFixed(5)}`
-                : ""}
-            </Text>
-          </View>
+          {/* slider and preview removed */}
         </View>
       </View>
     </Animated.View>

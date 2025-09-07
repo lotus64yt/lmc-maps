@@ -25,6 +25,11 @@ class NavigationService {
   private routeService: any = null; // Référence au service de route
   private currentMode: string = "driving";
   private lastRouteCheck: number = 0; // Timestamp du dernier check de route
+  private offRouteCounter: number = 0; // simple hysteresis counter for off-route detections
+  private distanceBuffer: number[] = [];
+  private distanceBufferSize: number = 5; // keep last 5 samples (~5s)
+  private lastLocationTimestamp: number = 0;
+  private lastLocation: { latitude: number; longitude: number } | null = null;
   private routeCoordinates: number[] = []; // Coordonnées complètes de la route
   private lastTripDestination: {
     latitude: number;
@@ -36,6 +41,44 @@ class NavigationService {
   private lastStepChangeTime: number = 0;
   private stepChangeMinInterval: number = 3000; // 3 secondes minimum entre changements d'étapes
   private stepToleranceDistance: number = 50; // 50 mètres de tolérance pour éviter les oscillations
+  private offRouteTolerance: number = 20; // meters to consider off-route (20m threshold)
+  private offRouteCheckInterval: number = 5000; // check every 5s (easier debug)
+  private offRouteTimer: any = null;
+  private maxPassedStepIndex: number = -1; // highest index that has been passed/completed
+  private recalcDistanceThreshold: number = 50; // meters: force recalculation when distanceToRoute > this
+  private routeServiceDisabledUntil: number = 0;
+  private pendingRecalculation: boolean = false;
+
+  // Centralize success handling when a recalculation produced a usable route
+  private async finalizeRecalculation(newSteps?: NavigationStep[], newFlatCoords?: number[]) {
+    try {
+      if (Array.isArray(newSteps) && newSteps.length > 0) {
+        this.navigationState.steps = newSteps;
+        // try to set current step to first reasonable index
+        this.navigationState.currentStepIndex = 0;
+        this.navigationState.nextStep = newSteps[0];
+        this.navigationState.distanceToNextStep = newSteps[0]?.distance || 0;
+        this.navigationState.remainingDistance = this.calculateTotalDistance(newSteps);
+        this.navigationState.remainingDuration = this.calculateTotalDuration(newSteps);
+      }
+
+      if (Array.isArray(newFlatCoords) && newFlatCoords.length >= 4) {
+        this.routeCoordinates = newFlatCoords;
+        this.navigationState.completedRouteCoordinates = [];
+        this.navigationState.remainingRouteCoordinates = this.convertRouteCoordinatesToPairs(this.routeCoordinates);
+        this.navigationState.progressPercentage = 0;
+      }
+
+      // Clear off-route indicators and hysteresis so the UI hides the banner
+      this.navigationState.isOffRoute = false;
+      this.pendingRecalculation = false;
+      this.offRouteCounter = 0;
+      this.notifyListeners();
+    } catch (e) {
+      // ignore finalization errors but ensure flags are sane
+      try { this.pendingRecalculation = false; this.offRouteCounter = 0; } catch (_) {}
+    }
+  }
 
 async startNavigation(
     routeSteps: NavigationStep[],
@@ -127,7 +170,11 @@ async startNavigation(
       hasStartedMoving: initialStepIndex > 0, // Si on démarre plus loin, on a déjà bougé
     };
 
+  // Mark steps before initialStepIndex as already passed
+  this.maxPassedStepIndex = initialStepIndex - 1;
+
     this.startLocationTracking();
+  this.startOffRouteTimer();
     this.notifyListeners();
   }
 
@@ -154,6 +201,7 @@ async startNavigation(
     this.initialLocation = null;
 
     this.stopLocationTracking();
+  this.stopOffRouteTimer();
     this.notifyListeners();
   }
 
@@ -184,6 +232,219 @@ async startNavigation(
     }
   }
 
+  private startOffRouteTimer() {
+    try {
+      this.stopOffRouteTimer();
+      if (!this.navigationState || !this.navigationState.isNavigating) {
+        return;
+      }
+      this.offRouteTimer = setInterval(() => {
+        try {
+          if (this.navigationState && this.navigationState.currentLocation) {
+            this.performOffRouteCheck(this.navigationState.currentLocation).catch(() => {
+              console.warn("Error in off-route check");
+            });
+          }
+        } catch (e) {
+          // ignore
+        }
+      }, this.offRouteCheckInterval);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  private isRouteServiceAvailable(): boolean {
+    return !!this.routeService && Date.now() > this.routeServiceDisabledUntil;
+  }
+
+  private stopOffRouteTimer() {
+    try {
+      if (this.offRouteTimer) {
+        clearInterval(this.offRouteTimer);
+        this.offRouteTimer = null;
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // Shared off-route check logic (simplified and balanced)
+  private async performOffRouteCheck(location: { latitude: number; longitude: number }): Promise<boolean> {
+    const now = Date.now();
+    if (!this.navigationState || !this.navigationState.isNavigating) return false;
+    if (now - this.lastRouteCheck < this.offRouteCheckInterval) return false;
+    this.lastRouteCheck = now;
+
+    // Get a distance-to-route (try routeService, then fallback to local geometry)
+    let distanceToRoute = Infinity;
+    const routeServiceAvailable = this.isRouteServiceAvailable();
+    if (routeServiceAvailable && this.routeService && typeof this.routeService.getDistanceToRoute === 'function') {
+      try {
+        const d = this.routeService.getDistanceToRoute({ latitude: location.latitude, longitude: location.longitude });
+        if (Number.isFinite(d)) distanceToRoute = d;
+        else this.routeServiceDisabledUntil = Date.now() + 5000;
+      } catch (e) {
+        this.routeServiceDisabledUntil = Date.now() + 5000;
+      }
+    }
+
+    if (!Number.isFinite(distanceToRoute)) {
+      // local fallback using cached route coordinates
+      try {
+        if (this.routeCoordinates && this.routeCoordinates.length >= 4) {
+          distanceToRoute = this.computeDistanceToRouteFromFlatCoords(location, this.routeCoordinates);
+        }
+      } catch (e) {
+        distanceToRoute = Infinity;
+      }
+    }
+
+    // Maintain small median buffer
+    this.distanceBuffer.push(distanceToRoute);
+    if (this.distanceBuffer.length > this.distanceBufferSize) this.distanceBuffer.shift();
+    const sorted = [...this.distanceBuffer].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const median = sorted.length ? (sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2) : Infinity;
+
+    // quick speed estimate
+    let speed = 0;
+    if (this.lastLocation && this.lastLocationTimestamp) {
+      const dt = (now - this.lastLocationTimestamp) / 1000;
+      if (dt > 0) {
+        const d = this.calculateDistance(this.lastLocation.latitude, this.lastLocation.longitude, location.latitude, location.longitude);
+        speed = d / dt;
+      }
+    }
+
+    const effectiveThreshold = speed < 1 ? this.offRouteTolerance * 1.2 : this.offRouteTolerance;
+    let detectHelper = false;
+    try {
+      if (routeServiceAvailable && typeof this.routeService.detectOffRoute === 'function') {
+        detectHelper = !!this.routeService.detectOffRoute({ latitude: location.latitude, longitude: location.longitude }, this.offRouteTolerance);
+      }
+    } catch (e) {
+      detectHelper = false;
+    }
+
+    const isCurrentlyOffRoute = median > effectiveThreshold;
+    const forceByDistance = Number.isFinite(distanceToRoute) && distanceToRoute > this.recalcDistanceThreshold;
+    const finalOffRouteDecision = isCurrentlyOffRoute || detectHelper || forceByDistance;
+
+    try {
+      // debug logging removed
+    } catch (e) { /* ignore */ }
+
+    if (forceByDistance && !this.navigationState.isOffRoute) {
+      this.navigationState.isOffRoute = true;
+      this.notifyListeners();
+    }
+
+    if (!finalOffRouteDecision) return false;
+
+    // Determine where to start recalculation (try routeService, else local projection)
+    let recalculationStart: { latitude: number; longitude: number } | false = false;
+    if (routeServiceAvailable && this.routeService && typeof this.routeService.recalculateIfOffRoute === 'function') {
+      try {
+        const res = await this.routeService.recalculateIfOffRoute({ latitude: location.latitude, longitude: location.longitude }, this.currentMode);
+        if (res) recalculationStart = res as any;
+      } catch (e) {
+        recalculationStart = false;
+      }
+    }
+
+    if (!recalculationStart && forceByDistance) {
+      try {
+        const proj = this.computeClosestPointOnFlatCoords(location, this.routeCoordinates);
+        if (proj) recalculationStart = proj;
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // Show off-route badge and mark pending recalculation
+    this.navigationState.isOffRoute = true;
+    this.pendingRecalculation = true;
+    this.notifyListeners();
+
+    // Immediate recalculation: start now when banner appears (avoid waiting for hysteresis)
+    // If we have a recalculation start point and a destination, attempt recalculation immediately.
+    if (recalculationStart && this.lastTripDestination) {
+      // guard double attempts
+      if (!this.pendingRecalculation) {
+        this.pendingRecalculation = true;
+      }
+
+      (async () => {
+        try {
+          Vibration.vibrate([50, 50, 50]);
+          const fetchResult = await this.fetchNavigationStepsFromAPI(recalculationStart as { latitude: number; longitude: number }, this.lastTripDestination, this.currentMode);
+          const newSteps = fetchResult?.steps || [];
+          if (newSteps && newSteps.length > 0) {
+            if (Array.isArray(fetchResult.flatCoords) && fetchResult.flatCoords.length >= 4) {
+              this.routeCoordinates = fetchResult.flatCoords;
+            } else {
+              const flatFromService = (this.routeService && (this.routeService.routeCoords?.map((c: any) => [c.longitude, c.latitude]).flat())) || undefined;
+              this.routeCoordinates = flatFromService || this.routeCoordinates;
+            }
+
+            await LastTripStorage.save({ destination: this.lastTripDestination, mode: this.currentMode, routeSteps: newSteps, fullRouteCoordinates: this.routeCoordinates });
+            await this.finalizeRecalculation(newSteps, this.routeCoordinates);
+          } else {
+            console.warn('🔄 Immediate recalculation: failed to get navigation steps from API');
+          }
+        } catch (err) {
+          console.error('🔄 Immediate recalculation error:', err);
+        } finally {
+          this.pendingRecalculation = false;
+        }
+      })();
+
+      // We started recalculation immediately; don't wait for hysteresis — exit now.
+      return true;
+    }
+
+    // Short hysteresis for non-forced cases: require two confirmations
+    if (!forceByDistance) {
+      this.offRouteCounter++;
+      if (this.offRouteCounter < 2) {
+        this.lastLocation = location;
+        this.lastLocationTimestamp = now;
+        return true;
+      }
+    }
+    this.offRouteCounter = 0;
+
+    // Attempt recalculation if we have a start point and a destination
+    if (recalculationStart && this.lastTripDestination) {
+      try {
+        Vibration.vibrate([50, 50, 50]);
+        const fetchResult = await this.fetchNavigationStepsFromAPI(recalculationStart as { latitude: number; longitude: number }, this.lastTripDestination, this.currentMode);
+        const newSteps = fetchResult?.steps || [];
+        if (newSteps && newSteps.length > 0) {
+          // Prefer fresh geometry returned by the routing API when available
+          if (Array.isArray(fetchResult.flatCoords) && fetchResult.flatCoords.length >= 4) {
+            this.routeCoordinates = fetchResult.flatCoords;
+          } else {
+            const flatFromService = (this.routeService && (this.routeService.routeCoords?.map((c: any) => [c.longitude, c.latitude]).flat())) || undefined;
+            this.routeCoordinates = flatFromService || this.routeCoordinates;
+          }
+
+          await LastTripStorage.save({ destination: this.lastTripDestination, mode: this.currentMode, routeSteps: newSteps, fullRouteCoordinates: this.routeCoordinates });
+          // Use finalize helper to update state and clear off-route banner
+          await this.finalizeRecalculation(newSteps, this.routeCoordinates);
+        } else {
+          console.warn('🔄 Failed to get navigation steps from API after recalculation');
+        }
+      } catch (err) {
+        console.error('🔄 Error during route recalculation:', err);
+      }
+    }
+
+    this.pendingRecalculation = false;
+    return true;
+  }
+
   // Arrêter le suivi de position
   private stopLocationTracking() {
     if (this.locationSubscription) {
@@ -198,6 +459,69 @@ async startNavigation(
     longitude: number;
   }) {
     this.navigationState.currentLocation = location;
+
+    // Log distance to nearest route point on every position update
+    try {
+      // Ensure we have flat route coordinates available locally by syncing
+      // from routeService.routeCoords if present and our flat array is empty.
+      try {
+        if ((!this.routeCoordinates || this.routeCoordinates.length < 4) && this.routeService && Array.isArray((this.routeService as any).routeCoords) && (this.routeService as any).routeCoords.length >= 2) {
+          const rc = (this.routeService as any).routeCoords as Array<{ latitude: number; longitude: number }>;
+          // Flatten to [lon, lat, lon, lat, ...]
+          this.routeCoordinates = rc.map(r => [r.longitude, r.latitude]).flat();
+        }
+      } catch (e) {
+        // ignore
+      }
+      let distLog: number | null = null;
+      let routeAvailable = false;
+      let routePointCount = 0;
+
+      if (this.isRouteServiceAvailable() && this.routeService) {
+        // Try the service helper first
+        if (typeof this.routeService.getDistanceToRoute === 'function') {
+          try {
+            const d = this.routeService.getDistanceToRoute({ latitude: location.latitude, longitude: location.longitude });
+            if (!Number.isFinite(d)) {
+              console.warn('[NavigationService.pos] routeService.getDistanceToRoute returned non-finite; disabling routeService temporarily');
+              this.routeServiceDisabledUntil = Date.now() + 5000;
+            } else {
+              distLog = Math.round(d);
+            }
+          } catch (e) {
+            console.warn('[NavigationService.pos] routeService.getDistanceToRoute threw', e);
+            this.routeServiceDisabledUntil = Date.now() + 5000;
+          }
+        }
+
+        // Check basic route availability
+        try {
+          const rcoords = (this.routeService.routeCoords as any) || [];
+          routeAvailable = Array.isArray(rcoords) && rcoords.length >= 2;
+          routePointCount = Array.isArray(rcoords) ? rcoords.length : 0;
+        } catch (e) {
+          routeAvailable = false;
+          routePointCount = 0;
+        }
+      }
+
+      // Fallback: if still null and routeService.routeCoords is available, compute locally
+      if (distLog === null) {
+        try {
+          const rcoords = (this.routeService && (this.routeService.routeCoords as any)) || null;
+          if (Array.isArray(rcoords) && rcoords.length >= 2) {
+            const fallback = this.computeDistanceToRouteFromCoordArray(location, rcoords);
+            if (Number.isFinite(fallback)) distLog = Math.round(fallback);
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+
+  // position logging removed
+    } catch (e) {
+      // ignore logging errors
+    }
 
     if (this.navigationState.isNavigating && this.navigationState.nextStep) {
       // Vérifier si l'utilisateur a commencé à bouger (pour éviter les faux sauts d'étapes)
@@ -236,6 +560,12 @@ async startNavigation(
           const suggestedStep = this.navigationState.steps[closestStepIndex];
 
           let shouldChangeStep = false;
+
+          // Never allow changing to a step we've already passed
+          if (closestStepIndex <= this.maxPassedStepIndex) {
+            // ignore suggestion to go back to a passed step
+            shouldChangeStep = false;
+          } else {
 
           // Vérifier si assez de temps s'est écoulé depuis le dernier changement
           const timeSinceLastChange = now - this.lastStepChangeTime;
@@ -284,7 +614,7 @@ async startNavigation(
             }
           }
 
-          if (shouldChangeStep) {
+            if (shouldChangeStep) {
             this.navigationState.currentStepIndex = closestStepIndex;
             this.navigationState.nextStep =
               this.navigationState.steps[closestStepIndex];
@@ -295,79 +625,32 @@ async startNavigation(
             // Vibration pour indiquer le changement d'étape
             Vibration.vibrate([100, 50, 100, 50, 100]);
           }
+          }
         }
       }
 
-      // Vérifier si on a quitté la route (tous les 10 secondes pour éviter trop de requêtes)
-      const now = Date.now();
-      if (this.routeService && now - this.lastRouteCheck > 10000) {
-        this.lastRouteCheck = now;
-        const needsRecalculation =
-          await this.routeService.recalculateIfOffRoute(
-            { latitude: location.latitude, longitude: location.longitude },
-            this.currentMode
-          );
-        if (needsRecalculation) {
-          // Vibration pour indiquer que la route a été recalculée
-          Vibration.vibrate([50, 50, 50]); // Triple vibration courte pour recalcul
-          // IMPORTANT: Récupérer les nouvelles données de route directement depuis l'API
-          if (this.lastTripDestination) {
-            try {
-              // Recalculer la route depuis la position actuelle vers la destination
-              const routeCalculated = await this.routeService.getHybridRoute(
-                { latitude: location.latitude, longitude: location.longitude },
-                this.lastTripDestination,
-                this.currentMode
-              );
+      // Vérifier si on a quitté la route : déléguer à la routine centralisée
+      try {
+        const offRouteHandled = await this.performOffRouteCheck(location);
+        if (offRouteHandled) return;
+      } catch (e) {
+        // ignore
+      }
 
-              if (routeCalculated) {
-                // Les nouvelles coordonnées sont automatiquement mises à jour dans routeService
-                // Maintenant on a besoin de récupérer les nouvelles étapes depuis l'API OSRM
-                const newSteps = await this.fetchNavigationStepsFromAPI(
-                  {
-                    latitude: location.latitude,
-                    longitude: location.longitude,
-                  },
-                  this.lastTripDestination,
-                  this.currentMode
-                );
+      // If we are on route, clear off-route flag if it was set and no recalculation is pending
+      try {
+        const onRouteNow = this.routeService && typeof this.routeService.isOnRoute === 'function'
+          ? this.routeService.isOnRoute({ latitude: location.latitude, longitude: location.longitude }, this.offRouteTolerance)
+          : true;
 
-                if (newSteps && newSteps.length > 0) {
-                  // Mettre à jour les étapes de navigation
-                  this.navigationState.steps = newSteps;
-                  this.navigationState.currentStepIndex = 0; // Repartir de la première étape
-                  this.navigationState.nextStep = newSteps[0];
-                  this.navigationState.distanceToNextStep =
-                    newSteps[0]?.distance || 0;
-                  this.navigationState.remainingDistance =
-                    this.calculateTotalDistance(newSteps);
-                  this.navigationState.remainingDuration =
-                    this.calculateTotalDuration(newSteps);
-                  this.routeCoordinates =
-                    this.routeService.routeCoords
-                      ?.map((coord: any) => [coord.longitude, coord.latitude])
-                      .flat() || [];
-
-                  // Sauvegarder la nouvelle route dans le storage
-                  await LastTripStorage.save({
-                    destination: this.lastTripDestination,
-                    mode: this.currentMode,
-                    routeSteps: newSteps,
-                    fullRouteCoordinates: this.routeCoordinates,
-                  });
-                } else {
-                  console.warn(
-                    "🔄 Failed to get navigation steps from API after recalculation"
-                  );
-                }
-              }
-            } catch (error) {
-              console.error("🔄 Error during route recalculation:", error);
-            }
-          }
-
-          return;
+        if (onRouteNow && this.navigationState.isOffRoute && !this.pendingRecalculation) {
+          this.navigationState.isOffRoute = false;
+          this.offRouteCounter = 0;
+          this.pendingRecalculation = false;
+          this.notifyListeners();
         }
+      } catch (e) {
+        // ignore detection faults
       }
 
       // Calculer la distance à la prochaine étape
@@ -404,7 +687,10 @@ async startNavigation(
       // Vibration pour indiquer qu'on passe à l'étape suivante
       Vibration.vibrate([100, 50, 100]); // Double vibration pour intersection/changement de direction
 
+      const prevIndex = this.navigationState.currentStepIndex;
       this.navigationState.currentStepIndex = nextIndex;
+      // mark previous step as passed so we never go back to it
+      this.maxPassedStepIndex = Math.max(this.maxPassedStepIndex, prevIndex);
       this.navigationState.nextStep = this.navigationState.steps[nextIndex];
       this.navigationState.distanceToNextStep =
         this.navigationState.nextStep?.distance || 0;
@@ -422,14 +708,18 @@ async startNavigation(
 
   // Mettre à jour les statistiques restantes
   private updateRemainingStats() {
-    const remainingSteps = this.navigationState.steps.slice(
-      this.navigationState.currentStepIndex
+    // remainingDistance should be: distance from current location to the next step
+    // (navigationState.distanceToNextStep) plus the sum of distances of steps AFTER
+    // the current step. Avoid double-counting the current step's full distance.
+    const remainingStepsAfterCurrent = this.navigationState.steps.slice(
+      this.navigationState.currentStepIndex + 1
     );
     this.navigationState.remainingDistance =
-      this.calculateTotalDistance(remainingSteps) +
-      this.navigationState.distanceToNextStep;
+      this.calculateTotalDistance(remainingStepsAfterCurrent) +
+      (this.navigationState.distanceToNextStep || 0);
     this.navigationState.remainingDuration =
-      this.calculateTotalDuration(remainingSteps);
+      this.calculateTotalDuration(remainingStepsAfterCurrent) +
+      0; // distanceToNextStep is a distance, duration for the partial current step is unknown
   }
 
   // Calculer la distance totale des étapes
@@ -468,26 +758,36 @@ async startNavigation(
     start: { latitude: number; longitude: number },
     end: { latitude: number; longitude: number },
     mode: string
-  ): Promise<NavigationStep[]> {
+  ): Promise<{ steps: NavigationStep[]; flatCoords?: number[] }> {
     try {
       const osrmMode =
         mode === "bicycling" ? "bike" : mode === "walking" ? "foot" : "driving";
       const url = `https://routing.openstreetmap.de/routed-car/route/v1/${osrmMode}/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true&alternatives=true`;
-      console.log(url)
       const response = await fetch(url);
       const data = await response.json();
 
       if (data.routes && data.routes.length > 0) {
-        // Utiliser la méthode existante pour convertir les données OSRM
+        // Convertir les étapes
         const steps = this.convertRouteToNavigationSteps(data);
-        return steps;
+        // Extract flat coordinates from the returned geometry (GeoJSON coordinates are [lon, lat])
+        try {
+          const coords = data.routes[0].geometry && data.routes[0].geometry.coordinates ? data.routes[0].geometry.coordinates : [];
+          if (Array.isArray(coords) && coords.length > 0) {
+            const flatCoords = (coords as any[]).flat();
+            return { steps, flatCoords };
+          }
+        } catch (e) {
+          // fallback: return steps without coords
+        }
+
+        return { steps };
       } else {
         console.warn("🔄 No routes found in OSRM response");
-        return [];
+        return { steps: [] };
       }
     } catch (error) {
       console.error("🔄 Error fetching navigation steps from OSRM:", error);
-      return [];
+      return { steps: [] };
     }
   }
 
@@ -575,55 +875,43 @@ async startNavigation(
     latitude: number;
     longitude: number;
   }) {
-    if (
-      !this.navigationState.remainingRouteCoordinates ||
-      this.navigationState.remainingRouteCoordinates.length === 0
-    ) {
-      return;
-    }
+    const allRouteCoords = this.convertRouteCoordinatesToPairs(
+      this.routeCoordinates
+    );
+    if (!allRouteCoords || allRouteCoords.length === 0) return;
 
-    // Trouver le point le plus proche sur la route
+    // Find the closest point index on the full polyline to avoid relying on
+    // remainingRouteCoordinates which may be out-of-sync after recalculation.
     let closestPointIndex = 0;
     let minDistance = Infinity;
-
-    this.navigationState.remainingRouteCoordinates.forEach((coord, index) => {
+    allRouteCoords.forEach((coord, index) => {
       const distance = this.calculateDistance(
         currentLocation.latitude,
         currentLocation.longitude,
         coord[1], // latitude
         coord[0] // longitude
       );
-
       if (distance < minDistance) {
         minDistance = distance;
         closestPointIndex = index;
       }
     });
 
-    // Diviser la route en partie complétée et partie restante
-    const allRouteCoords = this.convertRouteCoordinatesToPairs(
-      this.routeCoordinates
-    );
-    const totalPoints = allRouteCoords.length;
-    const remainingPoints =
-      this.navigationState.remainingRouteCoordinates.length;
-    const completedPoints = totalPoints - remainingPoints + closestPointIndex;
-
-    // Mettre à jour les coordonnées de progression
+    // Update completed/remaining coordinates based on the closest index
     this.navigationState.completedRouteCoordinates = allRouteCoords.slice(
       0,
-      completedPoints
+      closestPointIndex
     );
-    this.navigationState.remainingRouteCoordinates =
-      allRouteCoords.slice(completedPoints);
+    this.navigationState.remainingRouteCoordinates = allRouteCoords.slice(
+      closestPointIndex
+    );
 
-    // Calculer le pourcentage de progression
-    if (totalPoints > 0) {
-      this.navigationState.progressPercentage = Math.min(
-        100,
-        Math.max(0, (completedPoints / totalPoints) * 100)
-      );
-    }
+    // Update progress percentage
+    const totalPoints = allRouteCoords.length;
+    this.navigationState.progressPercentage = Math.min(
+      100,
+      Math.max(0, (closestPointIndex / totalPoints) * 100)
+    );
   }
 
   // Obtenir les coordonnées de la route complétée (pour l'affichage)
@@ -712,6 +1000,135 @@ async startNavigation(
     }
 
     return minDistance;
+  }
+
+  // Compute minimal distance (meters) from location to a flat coords array [lon, lat, lon, lat, ...]
+  private computeDistanceToRouteFromFlatCoords(location: { latitude: number; longitude: number }, flatCoords: number[]): number {
+    if (!flatCoords || flatCoords.length < 4) return Infinity;
+
+    const toRadians = (d: number) => d * (Math.PI / 180);
+    const haversine = (aLat: number, aLon: number, bLat: number, bLon: number) => {
+      const R = 6371000;
+      const φ1 = toRadians(aLat);
+      const φ2 = toRadians(bLat);
+      const dφ = toRadians(bLat - aLat);
+      const dλ = toRadians(bLon - aLon);
+      const sinDlat = Math.sin(dφ / 2);
+      const sinDlon = Math.sin(dλ / 2);
+      const c = sinDlat * sinDlat + Math.cos(φ1) * Math.cos(φ2) * sinDlon * sinDlon;
+      return R * 2 * Math.atan2(Math.sqrt(c), Math.sqrt(1 - c));
+    };
+
+    let best = Infinity;
+    for (let i = 0; i + 3 < flatCoords.length; i += 2) {
+      const lon1 = flatCoords[i];
+      const lat1 = flatCoords[i + 1];
+      const lon2 = flatCoords[i + 2];
+      const lat2 = flatCoords[i + 3];
+
+      // project point onto segment
+      const A = location.longitude - lon1;
+      const B = location.latitude - lat1;
+      const C = lon2 - lon1;
+      const D = lat2 - lat1;
+      const dot = A * C + B * D;
+      const lenSq = C * C + D * D;
+      let xx: number, yy: number;
+      if (lenSq === 0) {
+        xx = lon1; yy = lat1;
+      } else {
+        let param = dot / lenSq;
+        if (param < 0) { xx = lon1; yy = lat1; }
+        else if (param > 1) { xx = lon2; yy = lat2; }
+        else { xx = lon1 + param * C; yy = lat1 + param * D; }
+      }
+
+      const d = haversine(location.latitude, location.longitude, yy, xx);
+      if (d < best) best = d;
+    }
+
+    return best;
+  }
+
+  // Compute minimal distance (meters) from location to an array of coords [{latitude, longitude}, ...]
+  private computeDistanceToRouteFromCoordArray(location: { latitude: number; longitude: number }, coords: Array<{ latitude: number; longitude: number }>): number {
+    if (!coords || coords.length < 2) return Infinity;
+
+    const toRadians = (d: number) => d * (Math.PI / 180);
+    const haversine = (aLat: number, aLon: number, bLat: number, bLon: number) => {
+      const R = 6371000;
+      const φ1 = toRadians(aLat);
+      const φ2 = toRadians(bLat);
+      const dφ = toRadians(bLat - aLat);
+      const dλ = toRadians(bLon - aLon);
+      const sinDlat = Math.sin(dφ / 2);
+      const sinDlon = Math.sin(dλ / 2);
+      const c = sinDlat * sinDlat + Math.cos(φ1) * Math.cos(φ2) * sinDlon * sinDlon;
+      return R * 2 * Math.atan2(Math.sqrt(c), Math.sqrt(1 - c));
+    };
+
+    let best = Infinity;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const a = coords[i];
+      const b = coords[i + 1];
+
+      const A = location.longitude - a.longitude;
+      const B = location.latitude - a.latitude;
+      const C = b.longitude - a.longitude;
+      const D = b.latitude - a.latitude;
+      const dot = A * C + B * D;
+      const lenSq = C * C + D * D;
+      let xx: number, yy: number;
+      if (lenSq === 0) {
+        xx = a.longitude; yy = a.latitude;
+      } else {
+        let param = dot / lenSq;
+        if (param < 0) { xx = a.longitude; yy = a.latitude; }
+        else if (param > 1) { xx = b.longitude; yy = b.latitude; }
+        else { xx = a.longitude + param * C; yy = a.latitude + param * D; }
+      }
+
+      const d = haversine(location.latitude, location.longitude, yy, xx);
+      if (d < best) best = d;
+    }
+
+    return best;
+  }
+
+  // Compute closest point on flat coords [lon, lat, lon, lat,...] and return {latitude, longitude}
+  private computeClosestPointOnFlatCoords(location: { latitude: number; longitude: number }, flatCoords: number[]): { latitude: number; longitude: number } | null {
+    if (!flatCoords || flatCoords.length < 4) return null;
+    let best = { d: Infinity, lat: 0, lon: 0 };
+    for (let i = 0; i + 3 < flatCoords.length; i += 2) {
+      const lon1 = flatCoords[i];
+      const lat1 = flatCoords[i + 1];
+      const lon2 = flatCoords[i + 2];
+      const lat2 = flatCoords[i + 3];
+
+      const A = location.longitude - lon1;
+      const B = location.latitude - lat1;
+      const C = lon2 - lon1;
+      const D = lat2 - lat1;
+      const dot = A * C + B * D;
+      const lenSq = C * C + D * D;
+      let xx: number, yy: number;
+      if (lenSq === 0) {
+        xx = lon1; yy = lat1;
+      } else {
+        let param = dot / lenSq;
+        if (param < 0) { xx = lon1; yy = lat1; }
+        else if (param > 1) { xx = lon2; yy = lat2; }
+        else { xx = lon1 + param * C; yy = lat1 + param * D; }
+      }
+
+      const d = this.calculateDistance(location.latitude, location.longitude, yy, xx);
+      if (d < best.d) {
+        best = { d, lat: yy, lon: xx };
+      }
+    }
+
+    if (!Number.isFinite(best.d)) return null;
+    return { latitude: best.lat, longitude: best.lon };
   }
 
   // Obtenir le pourcentage de progression

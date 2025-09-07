@@ -31,6 +31,7 @@ interface NavigationGuidanceProps {
   showRecenterPrompt?: boolean; // Afficher le prompt de recentrage
   onManualRecenter?: () => void; // Callback pour le recentrage manuel
   currentLocation?: { latitude: number; longitude: number } | null; // Position actuelle pour le SpeedLimitIndicator
+  isOffRouteOverride?: boolean; // Optional external override to indicate off-route
   // Nouvelle prop : demande de démarrage d'itinéraire (start/end/mode). Si fournie,
   // le composant lancera le chargement de l'itinéraire et affichera un spinner
   // jusqu'à ce que la navigation soit prête.
@@ -54,6 +55,7 @@ export default function NavigationGuidance({
   showRecenterPrompt = false,
   onManualRecenter,
   currentLocation,
+  isOffRouteOverride,
   routeRequest,
   routeData,
   onRouteReady,
@@ -86,8 +88,21 @@ export default function NavigationGuidance({
 
   // S'abonner aux changements d'état de navigation
   useEffect(() => {
+    const lastKeyState = { current: null as null | string };
+    const keyFromState = (s: NavigationState) =>
+      `${s.isNavigating ? 1 : 0}|${s.isOffRoute ? 1 : 0}|${s.currentStepIndex ?? 0}|${Math.round(s.distanceToNextStep ?? 0)}|${Math.round(s.progressPercentage ?? 0)}`;
+
     const handleStateChange = (state: NavigationState) => {
-      setNavigationState(state);
+      try {
+        const key = keyFromState(state);
+        if (key !== lastKeyState.current) {
+          lastKeyState.current = key;
+          setNavigationState(state);
+        }
+      } catch (e) {
+        // If anything unexpected happens, fallback to setting state once
+        setNavigationState(state);
+      }
     };
 
     NavigationService.addListener(handleStateChange);
@@ -96,6 +111,8 @@ export default function NavigationGuidance({
       NavigationService.removeListener(handleStateChange);
     };
   }, []);
+
+  const effectiveIsOffRoute = typeof isOffRouteOverride === 'boolean' ? isOffRouteOverride : navigationState.isOffRoute;
 
   // When a routeRequest is provided, load the route here and show a spinner.
   // If `routeData` is provided by the parent (already fetched), use it directly
@@ -110,12 +127,29 @@ export default function NavigationGuidance({
         return;
       }
 
+      const extractFlatCoords = (route: any): number[] | null => {
+        try {
+          // OSRM-like: route.routes[0].geometry.coordinates -> [[lon, lat], ...]
+          if (route.routes && route.routes[0] && route.routes[0].geometry && route.routes[0].geometry.coordinates) {
+            return (route.routes[0].geometry.coordinates as [number, number][]).map(c => [c[0], c[1]]).flat();
+          }
+          // ORS-like: route.features[0].geometry.coordinates -> [[lon, lat], ...]
+          if (route.features && route.features[0] && route.features[0].geometry && route.features[0].geometry.coordinates) {
+            return (route.features[0].geometry.coordinates as [number, number][]).map(c => [c[0], c[1]]).flat();
+          }
+        } catch (e) {
+          // ignore
+        }
+        return null;
+      };
+
       if ((routeData as any) != null) {
         console.log('[NavigationGuidance] Using provided routeData -> start navigation');
         try {
           const navigationSteps =
             NavigationService.convertRouteToNavigationSteps(routeData);
-          NavigationService.startNavigation(navigationSteps);
+          const flat = extractFlatCoords(routeData);
+          NavigationService.startNavigation(navigationSteps, undefined, undefined, flat || undefined);
           onRouteReady?.();
         } catch (e) {
           console.warn(
@@ -209,13 +243,9 @@ export default function NavigationGuidance({
         }
 
         if (mounted && fetchedRoute) {
-          const navigationSteps =
-            NavigationService.convertRouteToNavigationSteps(fetchedRoute);
-          NavigationService.startNavigation(
-            navigationSteps,
-            undefined,
-            osrmMode
-          );
+          const navigationSteps = NavigationService.convertRouteToNavigationSteps(fetchedRoute);
+          const flat = extractFlatCoords(fetchedRoute);
+          NavigationService.startNavigation(navigationSteps, undefined, osrmMode, flat || undefined);
           onRouteReady?.();
         }
       } catch (e) {
@@ -402,13 +432,18 @@ export default function NavigationGuidance({
           </View>
         )}
 
-        {/* Barre de recalcul (montrée si le parent demande un recalcul ou si ce composant charge la route) */}
-        {(isRecalculatingRoute || isLoadingRoute) && (
+        {/* Barre de recalcul / off-route */}
+  {(effectiveIsOffRoute && (
+          <View style={[styles.recalculatingBar, styles.offRouteBar]}>
+            <ActivityIndicator size="small" color="#FF3B30" />
+            <Text style={[styles.recalculatingText, styles.offRouteText]}>Vous avez quitté l'itinéraire</Text>
+          </View>
+        )) || ((isRecalculatingRoute || isLoadingRoute) && (
           <View style={styles.recalculatingBar}>
             <ActivityIndicator size="small" color="#007AFF" />
             <Text style={styles.recalculatingText}>Calcul de l'itinéraire...</Text>
           </View>
-        )}
+        ))}
       </SafeAreaView>
 
       {/* Barre de statut en bas - Informations globales ou prompt de recentrage */}
@@ -847,6 +882,15 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: "#007AFF",
     marginLeft: 8,
+  },
+
+  offRouteBar: {
+    backgroundColor: '#FFF0F0',
+    borderColor: '#FFCDD2',
+  },
+  offRouteText: {
+    color: '#C62828',
+    fontWeight: '700',
   },
 
   // Styles pour le prompt de recentrage

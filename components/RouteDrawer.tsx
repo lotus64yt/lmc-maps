@@ -1,4 +1,6 @@
 import React, { useRef, useEffect } from "react";
+import { useMapControls } from "../hooks/useMapControls";
+import { useLabs } from "../contexts/LabsContext";
 import {
   View,
   Text,
@@ -40,7 +42,12 @@ interface RouteDrawerProps {
   isOsrmAvailable?: boolean;
   provider?: string;
   // Debug timings from the route service
-  lastRequestTimings?: { host: string; durationMs: number; success: boolean; endpoint?: string }[];
+  lastRequestTimings?: {
+    host: string;
+    durationMs: number;
+    success: boolean;
+    endpoint?: string;
+  }[];
   // Timestamp (ms) updated by parent when the user interacts with the map
   userInteractionAt?: number;
   // Notifie le parent quand le drawer passe en mode expandé / réduit
@@ -69,7 +76,10 @@ export default function RouteDrawer({
   onExpandChange,
   onOpened,
 }: RouteDrawerProps) {
-  const isDebugMode = typeof __DEV__ !== 'undefined' ? __DEV__ : false;
+  const { fitToRoute, setDrawerCameraControl, releaseDrawerCameraControl } =
+    useMapControls();
+  const { showDebugInfo } = useLabs();
+  const isDebugMode = typeof __DEV__ !== "undefined" ? __DEV__ : false;
   const translateY = useRef(new Animated.Value(DRAWER_HEIGHT)).current;
   const handleBounce = useRef(new Animated.Value(0)).current;
   const [selectedTransport, setSelectedTransport] = React.useState("driving");
@@ -83,6 +93,7 @@ export default function RouteDrawer({
   > | null>(null);
   const inactivityCancelledRef = React.useRef(false);
   const lastInternalInteractionRef = React.useRef<number>(Date.now());
+  const lastTranslateYRef = React.useRef<number>(DRAWER_HEIGHT);
 
   // Fonction pour changer le mode de transport et déclencher l'affichage du trajet
   const handleTransportModeChange = (modeId: string) => {
@@ -173,7 +184,7 @@ export default function RouteDrawer({
     else if (mode === "bicycling") profile = "bike";
     else if (mode === "transit") return "-- min"; // OSRM ne gère pas le transit
 
-  const url = `https://routing.openstreetmap.de/routed-car/route/v1/${profile}/${userLocation.longitude},${userLocation.latitude};${destination.longitude},${destination.latitude}?overview=false&alternatives=true&steps=true`;
+    const url = `https://routing.openstreetmap.de/routed-car/route/v1/${profile}/${userLocation.longitude},${userLocation.latitude};${destination.longitude},${destination.latitude}?overview=false&alternatives=true&steps=true`;
     try {
       const res = await fetch(url);
       const data = await res.json();
@@ -215,6 +226,7 @@ export default function RouteDrawer({
       let newY = base + gestureState.dy;
       newY = Math.max(0, Math.min(DRAWER_HEIGHT, newY));
       translateY.setValue(newY);
+      lastTranslateYRef.current = newY;
       // mark interaction
       lastInternalInteractionRef.current = Date.now();
       resetInactivityTimer();
@@ -227,7 +239,22 @@ export default function RouteDrawer({
         gestureState.dy > 80 || gestureState.vy > velocityThreshold;
 
       if (swipeDown) {
-        closeDrawer();
+        // If currently expanded, a downward fling should collapse to peek first
+        if (isExpanded) {
+          collapseToPeek();
+          return;
+        }
+
+        // If already collapsed/peek, only close when user dragged near the bottom
+        // This avoids accidental closes from a simple strong swipe.
+        const CLOSE_THRESHOLD = DRAWER_HEIGHT - 80; // near bottom
+        if (lastTranslateYRef.current > CLOSE_THRESHOLD) {
+          closeDrawer();
+          return;
+        }
+
+        // Otherwise, snap back to peek
+        collapseToPeek();
         return;
       }
 
@@ -252,8 +279,8 @@ export default function RouteDrawer({
     }).start(() => {
       setIsExpanded(false);
       if (onExpandChange) onExpandChange(false);
-  // Notify parent that the drawer has finished opening (useful to adjust camera)
-  if (typeof onOpened === 'function') onOpened();
+      // Notify parent that the drawer has finished opening (useful to adjust camera)
+      if (typeof onOpened === "function") onOpened();
     });
     resetInactivityTimer();
   };
@@ -269,7 +296,7 @@ export default function RouteDrawer({
       if (onExpandChange) onExpandChange(true);
       // Stop any running inactivity hint animations when user expands
       stopInactivityAnimations();
-  if (typeof onOpened === 'function') onOpened();
+      if (typeof onOpened === "function") onOpened();
     });
     resetInactivityTimer();
   };
@@ -371,7 +398,7 @@ export default function RouteDrawer({
         inactivityAnimRef.current = loop;
         loop.start();
       }
-  }, 5000); // 5 seconds
+    }, 5000); // 5 seconds
   };
 
   const clearInactivityTimer = () => {
@@ -388,6 +415,13 @@ export default function RouteDrawer({
 
   useEffect(() => {
     if (visible) {
+      // Claim camera control for this drawer so our fitToRoute call is honored
+      try {
+        setDrawerCameraControl && setDrawerCameraControl("route-drawer");
+      } catch (e) {
+        // ignore
+      }
+
       openDrawer();
       // Afficher le trajet par défaut (voiture) quand le drawer s'ouvre,
       // sauf si un calcul est déjà en cours (évite les doubles requêtes).
@@ -399,7 +433,15 @@ export default function RouteDrawer({
       ) {
         onTransportModeChange("driving", destination);
       }
+      // Camera fit is handled by parent (App.tsx) via onOpened so it can supply the full route geometry.
     } else {
+      // Release camera control when drawer closes
+      try {
+        releaseDrawerCameraControl &&
+          releaseDrawerCameraControl("route-drawer");
+      } catch (e) {
+        // ignore
+      }
       closeDrawer();
     }
     // Start/clear inactivity timer when visibility changes
@@ -408,7 +450,9 @@ export default function RouteDrawer({
   }, [visible]);
 
   // small helper to display provider label
-  const providerLabel = provider ? `Provider: ${provider.replace(/^https?:\/\//, '')}` : null;
+  const providerLabel = provider
+    ? `Provider: ${provider.replace(/^https?:\/\//, "")}`
+    : null;
 
   // If parent signals user interaction elsewhere (map), reset inactivity timer
   useEffect(() => {
@@ -474,141 +518,169 @@ export default function RouteDrawer({
 
       {/* Contenu du drawer */}
       {isOsrmAvailable ? (
-        <ScrollView
-          style={styles.content}
-          showsVerticalScrollIndicator={false}
-          onScrollBeginDrag={() => {
-            resetInactivityTimer();
-          }}
-          onTouchStart={() => {
-            resetInactivityTimer();
-          }}
-        >
-          {/* Skeleton / loading indicator when route is being calculated */}
-          {isCalculatingRoute && (
-            <View style={styles.skeletonContainer}>
-              <View style={styles.skelTitle} />
-              <View style={styles.skelSubtitle} />
-              <View style={styles.skelRow}>
-                <View style={styles.skelBox} />
-                <View style={styles.skelBoxSmall} />
+        <>
+          <ScrollView
+            style={styles.content}
+            showsVerticalScrollIndicator={false}
+            onScrollBeginDrag={() => {
+              resetInactivityTimer();
+            }}
+            onTouchStart={() => {
+              resetInactivityTimer();
+            }}
+          >
+            {/* Skeleton / loading indicator when route is being calculated */}
+            {isCalculatingRoute && (
+              <View style={styles.skeletonContainer}>
+                <View style={styles.skelTitle} />
+                <View style={styles.skelSubtitle} />
+                <View style={styles.skelRow}>
+                  <View style={styles.skelBox} />
+                  <View style={styles.skelBoxSmall} />
+                </View>
+              </View>
+            )}
+
+            {/* Informations destination */}
+            <View style={styles.destinationInfo}>
+              <Icon name="place" size={24} color="#EA4335" />
+              <View style={styles.destinationText}>
+                <Text style={styles.destinationTitle} numberOfLines={1}>
+                  {destination.title}
+                </Text>
+                <Text style={styles.destinationSubtitle} numberOfLines={2}>
+                  {destination.subtitle}
+                </Text>
+                {providerLabel && (
+                  <Text style={styles.providerLabel} numberOfLines={1}>
+                    {providerLabel}
+                  </Text>
+                )}
+                {showDebugInfo &&
+                  lastRequestTimings &&
+                  lastRequestTimings.length > 0 && (
+                    <View style={styles.timingsContainer}>
+                      {lastRequestTimings.map((t, i) => (
+                        <Text
+                          key={i}
+                          style={styles.timingText}
+                          numberOfLines={1}
+                        >
+                          {`${t.host.replace(/^https?:\/\//, "")} — ${
+                            t.durationMs
+                          }ms ${t.success ? "OK" : "ERR"}`}
+                        </Text>
+                      ))}
+                    </View>
+                  )}
+              </View>
+              {/* Bouton de fermeture */}
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={handleCloseWithVibration}
+              >
+                <Icon name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Modes de transport + détails + actions */}
+            <View style={styles.transportSection}>
+              <Text style={styles.sectionTitle}>Modes de transport</Text>
+              <View style={styles.transportModes}>
+                {transportModes.map((mode) => (
+                  <TouchableOpacity
+                    key={mode.id}
+                    style={[
+                      styles.transportMode,
+                      selectedTransport === mode.id &&
+                        styles.transportModeSelected,
+                    ]}
+                    onPress={() => handleTransportModeChange(mode.id)}
+                  >
+                    <Icon
+                      name={mode.icon as any}
+                      size={24}
+                      color={
+                        selectedTransport === mode.id ? "#fff" : mode.color
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.transportName,
+                        selectedTransport === mode.id &&
+                          styles.transportNameSelected,
+                      ]}
+                    >
+                      {mode.name}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.transportDuration,
+                        selectedTransport === mode.id &&
+                          styles.transportDurationSelected,
+                      ]}
+                    >
+                      {mode.duration}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.transportDistance,
+                        selectedTransport === mode.id &&
+                          styles.transportDistanceSelected,
+                      ]}
+                    >
+                      {mode.distance}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
               </View>
             </View>
-          )}
 
-          {/* Informations destination */}
-          <View style={styles.destinationInfo}>
-            <Icon name="place" size={24} color="#EA4335" />
-            <View style={styles.destinationText}>
-              <Text style={styles.destinationTitle} numberOfLines={1}>
-                {destination.title}
-              </Text>
-              <Text style={styles.destinationSubtitle} numberOfLines={2}>
-                {destination.subtitle}
-              </Text>
-              {providerLabel && (
-                <Text style={styles.providerLabel} numberOfLines={1}>
-                  {providerLabel}
-                </Text>
-              )}
-              {isDebugMode && lastRequestTimings && lastRequestTimings.length > 0 && (
-                <View style={styles.timingsContainer}>
-                  {lastRequestTimings.map((t, i) => (
-                    <Text key={i} style={styles.timingText} numberOfLines={1}>
-                      {`${t.host.replace(/^https?:\/\//, '')} — ${t.durationMs}ms ${t.success ? 'OK' : 'ERR'}`}
-                    </Text>
-                  ))}
-                </View>
-              )}
-            </View>
-            {/* Bouton de fermeture */}
-            <TouchableOpacity
-              style={styles.closeButton}
-              onPress={handleCloseWithVibration}
-            >
-              <Icon name="close" size={24} color="#666" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Modes de transport + détails + actions */}
-          <View style={styles.transportSection}>
-            <Text style={styles.sectionTitle}>Modes de transport</Text>
-            <View style={styles.transportModes}>
-              {transportModes.map((mode) => (
-                <TouchableOpacity
-                  key={mode.id}
-                  style={[
-                    styles.transportMode,
-                    selectedTransport === mode.id && styles.transportModeSelected,
-                  ]}
-                  onPress={() => handleTransportModeChange(mode.id)}
-                >
-                  <Icon
-                    name={mode.icon as any}
-                    size={24}
-                    color={selectedTransport === mode.id ? "#fff" : mode.color}
-                  />
-                  <Text
-                    style={[
-                      styles.transportName,
-                      selectedTransport === mode.id && styles.transportNameSelected,
-                    ]}
-                  >
-                    {mode.name}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.transportDuration,
-                      selectedTransport === mode.id && styles.transportDurationSelected,
-                    ]}
-                  >
-                    {mode.duration}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.transportDistance,
-                      selectedTransport === mode.id && styles.transportDistanceSelected,
-                    ]}
-                  >
-                    {mode.distance}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.routeDetails}>
-            <Text style={styles.sectionTitle}>Détails du trajet</Text>
-            <View style={styles.routeInfo}>
-              {transportModes.find((m) => m.id === selectedTransport) && (
-                <View style={styles.routeStats}>
-                  <View style={styles.statItem}>
-                    <Icon name="schedule" size={20} color="#666" />
-                    <Text style={styles.statText}>
-                      {transportModes.find((m) => m.id === selectedTransport)?.duration}
-                    </Text>
+            <View style={styles.routeDetails}>
+              <Text style={styles.sectionTitle}>Détails du trajet</Text>
+              <View style={styles.routeInfo}>
+                {transportModes.find((m) => m.id === selectedTransport) && (
+                  <View style={styles.routeStats}>
+                    <View style={styles.statItem}>
+                      <Icon name="schedule" size={20} color="#666" />
+                      <Text style={styles.statText}>
+                        {
+                          transportModes.find((m) => m.id === selectedTransport)
+                            ?.duration
+                        }
+                      </Text>
+                    </View>
+                    <View style={styles.statItem}>
+                      <Icon name="straighten" size={20} color="#666" />
+                      <Text style={styles.statText}>
+                        {
+                          transportModes.find((m) => m.id === selectedTransport)
+                            ?.distance
+                        }
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.statItem}>
-                    <Icon name="straighten" size={20} color="#666" />
-                    <Text style={styles.statText}>
-                      {transportModes.find((m) => m.id === selectedTransport)?.distance}
-                    </Text>
-                  </View>
-                </View>
-              )}
+                )}
+              </View>
             </View>
-          </View>
 
-          <View style={styles.actionButtons}>
-            <TouchableOpacity style={styles.cancelButton} onPress={handleCloseWithVibration}>
-              <Text style={styles.cancelButtonText}>Annuler</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.startButton} onPress={handleStartNavigationWithVibration}>
-              <Icon name="navigation" size={20} color="#fff" />
-              <Text style={styles.startButtonText}>Démarrer</Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
+            <View style={styles.actionButtons}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={handleCloseWithVibration}
+              >
+                <Text style={styles.cancelButtonText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.startButton}
+                onPress={handleStartNavigationWithVibration}
+              >
+                <Icon name="navigation" size={20} color="#fff" />
+                <Text style={styles.startButtonText}>Démarrer</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </>
       ) : (
         // Compact non-scrollable view when OSRM is down: show banner + dest + minimal actions
         <View style={[styles.content, styles.compactContent]}>
@@ -629,13 +701,19 @@ export default function RouteDrawer({
                 {destination.subtitle}
               </Text>
             </View>
-            <TouchableOpacity style={styles.closeButton} onPress={handleCloseWithVibration}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={handleCloseWithVibration}
+            >
               <Icon name="close" size={24} color="#666" />
             </TouchableOpacity>
           </View>
 
           <View style={styles.actionButtons}>
-            <TouchableOpacity style={styles.cancelButton} onPress={handleCloseWithVibration}>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={handleCloseWithVibration}
+            >
               <Text style={styles.cancelButtonText}>Fermer</Text>
             </TouchableOpacity>
           </View>
@@ -720,7 +798,7 @@ const styles = StyleSheet.create({
   },
   timingText: {
     fontSize: 12,
-    color: '#666',
+    color: "#666",
   },
   transportSection: {
     marginBottom: 24,
@@ -884,4 +962,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
+  debugContainer: {
+    padding: 12,
+    borderTopWidth: 1,
+    borderColor: "#f2f2f2",
+    backgroundColor: "#fafafa",
+  },
+  debugTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#333",
+    marginBottom: 6,
+  },
+  debugText: { fontSize: 12, color: "#666" },
 });

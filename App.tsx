@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -35,12 +35,14 @@ import RouteDrawer from "./components/RouteDrawer";
 import POIDrawer from "./components/POIDrawer";
 import MultiStepRouteDrawer from "./components/MultiStepRouteDrawer";
 import NavigationGuidance from "./components/NavigationGuidance";
+import ProgressSidebar from "./components/ProgressSidebar";
 import LocationInfoDrawer from "./components/LocationInfoDrawer";
 import FavoritesDrawer from "./components/FavoritesDrawer";
 import NavigationStepDrawer from "./components/NavigationStepDrawer";
 import ArrivalDrawer from "./components/ArrivalDrawer";
 import ParkingDrawer from "./components/ParkingDrawer";
 import { MapViewProvider } from "./contexts/MapViewContext";
+import { LabsProvider } from "./contexts/LabsContext";
 import { useLocationAndNavigation } from "./hooks/useLocationAndNavigation";
 import { useMapControls } from "./hooks/useMapControls";
 import { OverpassPOI, OverpassService } from "./services/OverpassService";
@@ -55,9 +57,11 @@ export default function Map() {
   // Déclaration juste avant le return principal
 
   return (
-    <MapViewProvider>
-      <MapContent />
-    </MapViewProvider>
+    <LabsProvider>
+      <MapViewProvider>
+        <MapContent />
+      </MapViewProvider>
+    </LabsProvider>
   );
 }
 
@@ -189,9 +193,7 @@ function MapContent() {
   >([]);
   // GPX UI states
   const [showGpxDrawer, setShowGpxDrawer] = useState(false);
-  const [gpxPreviewIndex, setGpxPreviewIndex] = useState(0);
-  const [previewMarkerCoordinate, setPreviewMarkerCoordinate] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [previewMarkerBearing, setPreviewMarkerBearing] = useState<number>(0);
+  // preview slider removed
   const [gpxStartArrivalVisible, setGpxStartArrivalVisible] = useState(false);
   const [gpxStartPoint, setGpxStartPoint] = useState<{ latitude: number; longitude: number } | null>(null);
   const [gpxMinimizeSignal, setGpxMinimizeSignal] = useState(0);
@@ -206,13 +208,12 @@ function MapContent() {
   // Handlers to manage GPX overlays / navigation lifecycle
   const handleClearGpxOverlays = () => {
     // remove preview marker and route overlays
-    setPreviewMarkerCoordinate(null);
-    setPreviewMarkerBearing(0);
+  // preview marker removed
     setCompletedRouteCoords([]);
     setRemainingRouteCoords([]);
     // don't clear importedRouteCoords itself (the GPX data) unless desired
   // Clear GPX UI state and steps so the map no longer shows the GPX trace or step markers
-    setGpxPreviewIndex(0);
+  // preview index removed
     setGpxStartPoint(null);
     setGpxStartArrivalVisible(false);
     setNavigationSteps([]);
@@ -238,6 +239,7 @@ function MapContent() {
   const [navigationSteps, setNavigationSteps] = useState<any[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isRecalculatingRoute, setIsRecalculatingRoute] = useState(false);
+  const offRouteRecalcRunningRef = useRef(false);
   const [showNavigationGuidance, setShowNavigationGuidance] = useState(false);
   const [pendingRouteRequest, setPendingRouteRequest] = useState<{
     start: { latitude: number; longitude: number };
@@ -356,7 +358,6 @@ function MapContent() {
             // Enregistrer le tracé pour la carte et ouvrir le GPXDrawer
             setImportedRouteCoords(gpxTrack.map((p) => ({ latitude: p.latitude, longitude: p.longitude, elevation: (p as any).elevation })));
             setGpxStartPoint({ latitude: first.latitude, longitude: first.longitude });
-            setGpxPreviewIndex(0);
             setShowGpxDrawer(true);
             setGpxImportProgress(100);
           }
@@ -939,6 +940,70 @@ function MapContent() {
 
       if (navigationState.progressPercentage !== undefined) {
         setProgressPercentage(navigationState.progressPercentage);
+      }
+
+      // If NavigationService reports off-route, attempt a recalculation here using routeService
+      try {
+        if (navigationState.isOffRoute) {
+          // Avoid concurrent recalculations
+          if (!isRecalculatingRoute && !offRouteRecalcRunningRef.current) {
+            offRouteRecalcRunningRef.current = true;
+            (async () => {
+              try {
+                setIsRecalculatingRoute(true);
+                // Choose a start point: prefer routeService.recalculateIfOffRoute() if available
+                const loc = navigationState.currentLocation || location;
+                let startPoint: any = loc;
+                try {
+                  if (routeService && typeof routeService.recalculateIfOffRoute === 'function') {
+                    const res = await routeService.recalculateIfOffRoute(loc, 'driving');
+                    if (res) startPoint = res;
+                  }
+                } catch (e) {
+                  // ignore and fallback to loc
+                }
+
+                // Ensure we have a destination to recalculate to
+                const dest = routeService?.destination || null;
+                if (!startPoint || !dest || !routeService) {
+                  setIsRecalculatingRoute(false);
+                  return;
+                }
+
+                // Use routing.openstreetmap.de via routeService.getHybridRoute
+                const ok = await routeService.getHybridRoute(startPoint, dest, 'driving');
+                if (ok) {
+                  // Convert raw route data to navigation steps and start navigation from the new route
+                  const fetched = (routeService as any).lastRawRouteData;
+                  try {
+                    const newSteps = NavigationService.convertRouteToNavigationSteps(fetched);
+                    const flat = Array.isArray(routeService.routeCoords)
+                      ? (routeService.routeCoords as any[]).map((c: any) => [c.longitude, c.latitude]).flat()
+                      : undefined;
+                    await NavigationService.startNavigation(newSteps, routeService, 'driving', flat, dest);
+                    // Make sure guidance UI reflects completion
+                    setPendingRouteRequest(null);
+                    setShowNavigationGuidance(true);
+                  } catch (e) {
+                    console.warn('[App] failed to convert/apply new route steps', e);
+                  }
+                } else {
+                  console.warn('[App] routeService.getHybridRoute failed to recalculate');
+                }
+              } catch (err) {
+                console.warn('[App] error during off-route recalculation', err);
+              } finally {
+                setIsRecalculatingRoute(false);
+                offRouteRecalcRunningRef.current = false;
+              }
+            })();
+          }
+        } else {
+          // If we are back on route, ensure recalculating flag is cleared
+          if (isRecalculatingRoute) setIsRecalculatingRoute(false);
+        }
+      } catch (e) {
+        // ignore listener errors
       }
     };
 
@@ -2401,6 +2466,7 @@ function MapContent() {
               }
             }
           }}
+          onImportGpx={handleImportGpx}
           
         />
       )}
@@ -2418,6 +2484,7 @@ function MapContent() {
           onShowPOI={handleShowPOI}
           onAddStep={handleAddStep}
           onResumeLastTrip={() => setResumeModalVisible(true)}
+          onImportGpx={handleImportGpx}
           userLocation={
             location
               ? { latitude: location.latitude, longitude: location.longitude }
@@ -2530,7 +2597,7 @@ function MapContent() {
       )}
 
       <>
-        <MapContainer
+  <MapContainer
           mapHeadingOverride={cameraHeadingOverride}
           location={location}
           headingAnim={headingAnim}
@@ -2569,9 +2636,10 @@ function MapContent() {
           progressPercentage={progressPercentage}
           // Nouvelle prop pour la direction de la route
           routeDirection={routeDirection}
-          previewMarkerCoordinate={previewMarkerCoordinate}
-          previewMarkerBearing={previewMarkerBearing}
+          
         />
+
+  {isNavigating && <ProgressSidebar progressPercentage={progressPercentage} />}
 
         <ControlButtons
           onRecenter={handleRecenter}
@@ -2628,7 +2696,7 @@ function MapContent() {
         <GPXDrawer
           visible={showGpxDrawer}
           track={importedRouteCoords}
-          onClose={() => { if (handleClearGpxOverlays) handleClearGpxOverlays(); setShowGpxDrawer(false); setPreviewMarkerCoordinate(null); reactivateFollowMode(); }}
+          onClose={() => { if (handleClearGpxOverlays) handleClearGpxOverlays(); setShowGpxDrawer(false); reactivateFollowMode(); }}
           userLocation={location ? { latitude: location.latitude, longitude: location.longitude } : null}
           onNavigateToStart={async (start) => {
             // Démarre NavigationGuidance avec un routeRequest jusqu'au départ GPX
@@ -2656,41 +2724,7 @@ function MapContent() {
             }
             setShowGpxDrawer(false);
           }}
-      onPreviewIndexChange={(idx) => {
-            setGpxPreviewIndex(idx);
-            // Optionnel: centrer la caméra sur le point en sécurisant l'accès
-            const hasCoords = Array.isArray(importedRouteCoords) && importedRouteCoords.length > 0;
-            const pt = hasCoords && idx >= 0 && idx < importedRouteCoords.length ? importedRouteCoords[idx] : null;
-            if (!pt) return;
-
-            const adjustedCoord = getAdjustedCoordinate({ latitude: pt.latitude, longitude: pt.longitude }, 15, undefined, GPX_DRAWER_HEIGHT, 140);
-            animateToCoordinateLocked(adjustedCoord, 15);
-
-            // Préparer le marqueur d'aperçu (flèche transparente) en utilisant des fallbacks sûrs
-            const prev = hasCoords ? importedRouteCoords[Math.max(0, idx - 1)] || pt : pt;
-            const next = hasCoords ? importedRouteCoords[Math.min(importedRouteCoords.length - 1, idx + 1)] || pt : pt;
-            const toRad = (x: number) => (x * Math.PI) / 180;
-            const dy = (next.longitude || 0) - (prev.longitude || 0);
-            const y = Math.sin(toRad(dy)) * Math.cos(toRad(next.latitude || 0));
-            const x =
-              Math.cos(toRad(prev.latitude || 0)) * Math.sin(toRad(next.latitude || 0)) -
-              Math.sin(toRad(prev.latitude || 0)) * Math.cos(toRad(next.latitude || 0)) * Math.cos(toRad(dy));
-            let bearing = (Math.atan2(y, x) * 180) / Math.PI;
-            if (bearing < 0) bearing += 360;
-            setPreviewMarkerCoordinate({ latitude: pt.latitude, longitude: pt.longitude });
-            setPreviewMarkerBearing(bearing);
-
-            // Simuler la progression sur la carte quand on n'est pas en navigation
-            if (!isNavigating && hasCoords) {
-              const completed = importedRouteCoords.slice(0, Math.max(1, idx + 1));
-              const remaining = importedRouteCoords.slice(Math.max(1, idx + 1));
-              setCompletedRouteCoords(completed);
-              setRemainingRouteCoords(remaining);
-              const pct = importedRouteCoords.length > 1 ? (idx / (importedRouteCoords.length - 1)) * 100 : 0;
-              setProgressPercentage(pct);
-            }
-          }}
-          previewIndex={gpxPreviewIndex}
+          
           minimizeSignal={gpxMinimizeSignal}
           onOpened={() => {
             // Désactiver temporairement le recentrage auto quand le GPXDrawer s'ouvre

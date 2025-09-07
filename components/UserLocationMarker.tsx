@@ -93,6 +93,7 @@ export default function UserLocationMarker({
   return isNavigating ? (
     // Blue (or gray) background ring with rotating arrow on top
     <View
+      collapsable={false}
       style={{
         width: 40,
         height: 40,
@@ -128,6 +129,7 @@ export default function UserLocationMarker({
   ) : (
     // Empty ring when not navigating (no inner dot)
     <View
+      collapsable={false}
       style={{
         width: 40,
         height: 40,

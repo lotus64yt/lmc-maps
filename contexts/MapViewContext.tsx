@@ -57,6 +57,7 @@ export function MapViewProvider({
   initialHeading = 0
 }: MapViewProviderProps) {
   const mapRef = useRef<MapView>(null);
+  const CAMERA_DEBUG = false;
   
   // États de la caméra
   const [centerCoordinate, setCenterCoordinate] = useState<[number, number] | null>(initialCenter);
@@ -90,6 +91,7 @@ export function MapViewProvider({
 
   // Fonction principale pour configurer la caméra
   const setCameraConfig = (config: CameraConfig, forced: boolean = false, controllerId?: string) => {
+  const prevCamera = { centerCoordinate, zoomLevel, pitch, heading };
     // Si les animations sont verrouillées et que ce n'est pas forcé, ignorer
     if (isAnimationLocked && !forced) {
 return;
@@ -123,7 +125,19 @@ return;
     }
     
     if (hasChanged) {
-}
+      if (CAMERA_DEBUG) {
+        try {
+          console.log('[MapViewContext.setCameraConfig]', new Date().toISOString(), {
+            controllerId,
+            forced: !!forced,
+            config,
+            prev: prevCamera,
+          });
+        } catch (e) {
+          // ignore logging errors
+        }
+      }
+    }
   };
 
   // Animer vers une location spécifique avec validation du ref

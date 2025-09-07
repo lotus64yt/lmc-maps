@@ -128,6 +128,7 @@ export default function MapContainer({
   } | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const touchMovedRef = useRef(false);
+  const [useOverlayMarker, setUseOverlayMarker] = useState(false);
 
   // Debug log pour le heading
   useEffect(() => {
@@ -396,9 +397,10 @@ export default function MapContainer({
   useEffect(() => {
     if (!location || !isMapReady) return;
 
-    const now = Date.now();
-    const MIN_UPDATE_INTERVAL = 1000; // 1 seconde minimum entre les mises à jour
-    const MIN_DISTANCE_THRESHOLD = 5; // 5 mètres minimum de déplacement
+  const now = Date.now();
+  // Rendre la caméra plus réactive en navigation
+  const MIN_UPDATE_INTERVAL = isNavigating ? 300 : 1000; // ms
+  const MIN_DISTANCE_THRESHOLD = isNavigating ? 1 : 5; // mètres
 
     // Vérifier si assez de temps s'est écoulé
     if (
@@ -424,15 +426,19 @@ export default function MapContainer({
 
     if (isNavigating) {
       // En navigation : zoom proche et suivi automatique
+      // Only update center here. Navigation camera (useMapControls.adjustNavigationCamera)
+      // is responsible for zoom/pitch/heading to avoid conflicting writers and zoom jank.
       setCameraConfig({
         centerCoordinate: [location.longitude, location.latitude],
-        zoomLevel: 18,
+        animationDuration: 300,
       });
       lastCameraUpdateRef.current = {
         latitude: location.latitude,
         longitude: location.longitude,
         timestamp: now,
       };
+  // Prefer overlay marker while navigating unless user has manually moved the map
+  if (!touchMovedRef.current) setUseOverlayMarker(true);
     } else if (!hasZoomedToUser) {
       // Première fois : zoom modéré sur la position utilisateur
       setCameraConfig({
@@ -449,6 +455,13 @@ export default function MapContainer({
     // Pas de lastCameraUpdateRef dans les dépendances car c'est un ref
     // Pas de setCameraConfig car c'est une fonction stable du contexte
   }, [isNavigating, location, isMapReady, hasZoomedToUser]);
+
+  // Ensure overlay marker is enabled when navigation starts (unless user recently panned)
+  useEffect(() => {
+    if (isNavigating && isMapReady && location && !touchMovedRef.current) {
+      setUseOverlayMarker(true);
+    }
+  }, [isNavigating, isMapReady, location]);
 
   // Gérer les changements de région de la carte
   const handleRegionDidChange = async (feature: any) => {
@@ -690,6 +703,8 @@ export default function MapContainer({
       const dy = Math.abs(ne.pageY - touchStartRef.current.y);
       if (dx > 6 || dy > 6) {
         touchMovedRef.current = true;
+        // User moved the map: switch back to map-layer marker
+        if (useOverlayMarker) setUseOverlayMarker(false);
       }
     } catch (err) {
       // ignore
@@ -719,6 +734,12 @@ export default function MapContainer({
             return;
           }
         }
+        return;
+      }
+
+      // If the touch DID move (user panned), ensure overlay marker is disabled
+      if (touchMovedRef.current && useOverlayMarker) {
+        setUseOverlayMarker(false);
       }
     } catch (err) {
       // ignore
@@ -774,26 +795,7 @@ export default function MapContainer({
           isNavigating &&
           (completedRouteGeoJSON || remainingRouteGeoJSON) ? (
             <>
-              {/* Segment de route déjà parcouru (en gris/vert) */}
-              {completedRouteGeoJSON && (
-                <ShapeSource
-                  id={`completed-route-${currentTimestamp}`}
-                  shape={completedRouteGeoJSON}
-                >
-                  <LineLayer
-                    id={`completed-route-layer-${currentTimestamp}`}
-                    style={{
-                      lineColor: "#4CAF50", // Vert pour indiquer terminé
-                      lineWidth: 4,
-                      lineCap: "round",
-                      lineJoin: "round",
-                      lineOpacity: 0.7,
-                    }}
-                  />
-                </ShapeSource>
-              )}
-
-              {/* Segment de route restant (en bleu) */}
+              
               {remainingRouteGeoJSON && (
                 <ShapeSource
                   id={`remaining-route-${currentTimestamp}`}
@@ -923,7 +925,8 @@ export default function MapContainer({
           {isMapReady &&
             location &&
             isFinite(location.longitude) &&
-            isFinite(location.latitude) && (
+            isFinite(location.latitude) &&
+            !useOverlayMarker && (
               <PointAnnotation
                 id="user-location-arrow"
                 coordinate={[location.longitude, location.latitude]}
@@ -1195,6 +1198,62 @@ export default function MapContainer({
     </View>
   );
 
+  // Render fixed overlay marker above the map when requested
+  // (kept outside of MapView to appear as a stable UI element)
+  if (useOverlayMarker && isMapReady && location) {
+    return (
+      <View style={styles.container}>
+        {initialCenter && (
+          <MapView
+            ref={mapRef}
+            style={styles.map}
+            styleJSON={JSON.stringify(libertyStyle)}
+            onLongPress={handleMapPress}
+            onPress={handleMapPress}
+            onTouchStart={(e) => {
+              handleTouchStart(e);
+              if (onMapPanDrag) onMapPanDrag();
+            }}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={(e) => {
+              handleTouchEnd(e);
+            }}
+            onDidFinishLoadingMap={handleMapReady}
+            onCameraChanged={onCameraChanged}
+            logoEnabled={false}
+            attributionEnabled={false}
+            compassEnabled={false}
+            scaleBarEnabled={false}
+          >
+            {/* Keep Camera and layers but user marker handled by overlay */}
+            {isMapReady && (
+              <Camera
+                centerCoordinate={centerCoordinate || initialCenter}
+                zoomLevel={zoomLevel}
+                pitch={pitch}
+                heading={getCameraHeading()}
+                animationDuration={300}
+              />
+            )}
+          </MapView>
+        )}
+
+        {/* Overlay marker centered on screen */}
+        <View pointerEvents="none" style={styles.overlayMarkerContainer}>
+          <UserLocationMarker
+            location={location}
+            headingAnim={headingAnim}
+            compassMode={compassMode}
+            mapHeading={currentHeading}
+            routeDirection={routeDirection}
+            isNavigating={true}
+            color={userLocationColor || "#007AFF"}
+          />
+        </View>
+      </View>
+    );
+  }
+
   // Fonction pour obtenir l'icône du maneuver
   function getManeuverIcon(
     maneuver: string
@@ -1420,5 +1479,18 @@ const styles = StyleSheet.create({
     },
     shadowOpacity: 0.3,
     shadowRadius: 4,
+  },
+  overlayMarkerContainer: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -20 }, { translateY: -20 }],
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 999,
+    elevation: 20,
+    pointerEvents: 'none',
   },
 });
