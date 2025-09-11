@@ -41,7 +41,6 @@ import FavoritesDrawer from "./components/FavoritesDrawer";
 import NavigationStepDrawer from "./components/NavigationStepDrawer";
 import ArrivalDrawer from "./components/ArrivalDrawer";
 import ParkingDrawer from "./components/ParkingDrawer";
-import FavoritesDebugPanel from "./components/FavoritesDebugPanel";
 import { MapViewProvider } from "./contexts/MapViewContext";
 import { LabsProvider } from "./contexts/LabsContext";
 import { useLocationAndNavigation } from "./hooks/useLocationAndNavigation";
@@ -3075,9 +3074,6 @@ function MapContent() {
             routeService ? routeService.lastRequestTimings : undefined
           }
         />
-
-        {/* Debug Panel - Remove in production */}
-        <FavoritesDebugPanel />
 
         {/* GPX Drawer */}
         <GPXDrawer

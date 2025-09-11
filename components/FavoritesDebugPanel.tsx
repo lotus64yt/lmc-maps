@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { FavoritesService, FavoriteItem } from '../services/FavoritesService';
-import { WidgetUpdateService } from '../services/WidgetUpdateService';
 
 export default function FavoritesDebugPanel() {
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
@@ -36,14 +35,9 @@ export default function FavoritesDebugPanel() {
     Alert.alert('Test', 'Favoris effacés !');
   };
 
-  const updateWidget = () => {
-    WidgetUpdateService.updateFavoritesWidgets();
-    Alert.alert('Test', 'Mise à jour du widget envoyée !');
-  };
-
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Debug Favoris & Widget</Text>
+      <Text style={styles.title}>Debug Favoris</Text>
       <Text style={styles.count}>Favoris: {favorites.length}</Text>
       
       {favorites.map((fav, index) => (
@@ -58,10 +52,6 @@ export default function FavoritesDebugPanel() {
       
       <TouchableOpacity style={styles.button} onPress={clearFavorites}>
         <Text style={styles.buttonText}>Effacer Favoris</Text>
-      </TouchableOpacity>
-      
-      <TouchableOpacity style={styles.button} onPress={updateWidget}>
-        <Text style={styles.buttonText}>Mettre à jour Widget</Text>
       </TouchableOpacity>
     </View>
   );
