@@ -69,6 +69,14 @@ export function useLocationAndNavigation() {
     }
   }, [locationService.location, routeService.routeCoords]);
 
+  // Debug: tracer les changements de routeCoords dans le service
+  useEffect(() => {
+    console.log('[HOOK] 🔄 RouteService.routeCoords changé:', routeService.routeCoords.length, 'points');
+    if (routeService.routeCoords.length > 0) {
+      console.log('[HOOK] Premiers points du service:', routeService.routeCoords.slice(0, 2));
+    }
+  }, [routeService.routeCoords]);
+
   // Fonction pour gérer les long press sur la carte
   const handleLongPress = async (coordinate: Coordinate) => {
     if (locationService.location) {

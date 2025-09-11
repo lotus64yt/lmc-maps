@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { WidgetUpdateService } from './WidgetUpdateService';
 
 export interface FavoriteItem {
   id: string;
@@ -27,6 +28,8 @@ export class FavoritesService {
   static async saveFavorites(items: FavoriteItem[]): Promise<void> {
     try {
       await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(items));
+      // Update widgets after saving favorites
+      WidgetUpdateService.updateFavoritesWidgets();
     } catch (e) {
       console.error('FavoritesService.saveFavorites error', e);
     }

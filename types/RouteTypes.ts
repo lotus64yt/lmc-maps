@@ -42,6 +42,7 @@ export interface NavigationState {
   progressPercentage?: number; // Pourcentage de progression (0-100)
   hasStartedMoving?: boolean; // Pour éviter les faux sauts d'étapes au début
   isOffRoute?: boolean; // true when user left the planned route
+  isRecalculating?: boolean; // true when actively recalculating route
 }
 
 export interface Coordinate {

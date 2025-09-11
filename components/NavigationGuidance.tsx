@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { MaterialIcons as Icon } from "@expo/vector-icons";
 import NavigationService from "../services/NavigationService";
+import { fetchParallelRouting } from "../services/RouteService";
 import { NavigationState } from "../types/RouteTypes";
 import {
   formatDistance,
@@ -43,7 +44,20 @@ interface NavigationGuidanceProps {
   // If the parent already fetched the route, pass it here to avoid re-fetching.
   // Expected to be in the same shape RouteService / NavigationService.convertRouteToNavigationSteps accepts.
   routeData?: any | null;
+  // Structured navigation data with duration, distance, and steps
+  navigationData?: {
+    routeData: any;
+    totalDuration: number; // seconds
+    totalDistance: number; // meters
+    steps: Array<{
+      instruction: string;
+      distance: number;
+      duration: number;
+      coordinates?: [number, number][];
+    }>;
+  } | null;
   onRouteReady?: () => void; // callback quand la route est prête
+  onNewRouteCalculated?: (routeData: any) => void; // callback quand une nouvelle route est calculée
 }
 
 export default function NavigationGuidance({
@@ -58,7 +72,9 @@ export default function NavigationGuidance({
   isOffRouteOverride,
   routeRequest,
   routeData,
+  navigationData,
   onRouteReady,
+  onNewRouteCalculated,
 }: NavigationGuidanceProps) {
   const [navigationState, setNavigationState] = useState<NavigationState>(
     NavigationService.getCurrentState()
@@ -67,13 +83,115 @@ export default function NavigationGuidance({
   const [showMenu, setShowMenu] = useState(false); // État pour le menu
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const [isLoadingRoute, setIsLoadingRoute] = useState<boolean>(false);
+  const [loadedRouteData, setLoadedRouteData] = useState<any>(null); // Store loaded route data
   const [recenterRemainingMs, setRecenterRemainingMs] = useState<number | null>(
     null
   );
   const progressAnim = React.useRef(new Animated.Value(0)).current;
   const recenterIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
+  const lastRecalculationRef = React.useRef<number>(0); // Timestamp du dernier recalcul
   const [timeMode, setTimeMode] = useState<number>(0); // 0 = formatted, 1 = minutes, 2 = seconds
   const [distanceMode, setDistanceMode] = useState<number>(0); // 0 = formatted, 1 = km, 2 = miles
+
+  // Déclencher le recalcul automatiquement quand isRecalculatingRoute devient true
+  useEffect(() => {
+    if (isRecalculatingRoute && currentLocation) {
+      const now = Date.now();
+      
+      // Éviter les recalculs trop fréquents (minimum 5 secondes entre les recalculs)
+      if (now - lastRecalculationRef.current < 5000) {
+        console.log('[RECALCUL] Recalcul ignoré - trop récent (moins de 5s)');
+        return;
+      }
+      
+      console.log('[RECALCUL] isRecalculatingRoute = true détecté, lancement du recalcul automatique');
+      lastRecalculationRef.current = now;
+      setIsLoadingRoute(true);
+      
+      // Lancer le processus de recalcul avec un petit délai pour éviter les conflits
+      const performRecalculation = async () => {
+        try {
+          // Petit délai pour laisser le temps aux états de se stabiliser
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          console.log('[RECALCUL] Début du recalcul automatique depuis', currentLocation);
+          
+          // Utiliser la destination actuelle du routeData
+          let targetDestination = null;
+          
+          if (routeData) {
+            // Extraire la destination du routeData
+            try {
+              if (routeData.features && routeData.features[0]) {
+                const coords = routeData.features[0].geometry.coordinates;
+                if (coords && coords.length > 0) {
+                  const lastCoord = coords[coords.length - 1];
+                  targetDestination = { latitude: lastCoord[1], longitude: lastCoord[0] };
+                }
+              } else if (routeData.routes && routeData.routes[0]) {
+                const coords = routeData.routes[0].geometry.coordinates;
+                if (coords && coords.length > 0) {
+                  const lastCoord = coords[coords.length - 1];
+                  targetDestination = { latitude: lastCoord[1], longitude: lastCoord[0] };
+                }
+              }
+            } catch (e) {
+              console.warn('[RECALCUL] Erreur extraction destination:', e);
+            }
+          }
+          
+          if (!targetDestination) {
+            console.warn('[RECALCUL] Impossible de déterminer la destination pour le recalcul');
+            setIsLoadingRoute(false);
+            return;
+          }
+          
+          console.log('[RECALCUL] Recalcul vers destination:', targetDestination);
+          
+          // Fetch nouvelle route
+          const fetchedRoute = await fetchParallelRouting(
+            currentLocation,
+            targetDestination,
+            'driving'
+          );
+          
+          if (fetchedRoute.success && fetchedRoute.data) {
+            console.log('[RECALCUL] Nouvelle route recalculée avec succès');
+            const navigationSteps = NavigationService.convertRouteToNavigationSteps(fetchedRoute.data);
+            
+            // Fonction locale pour extraire les coordonnées plates
+            const extractFlatCoords = (route: any) => {
+              try {
+                if (route.features && route.features[0] && route.features[0].geometry && route.features[0].geometry.coordinates) {
+                  return (route.features[0].geometry.coordinates as [number, number][]).map(c => [c[0], c[1]]).flat();
+                }
+                if (route.routes && route.routes[0] && route.routes[0].geometry && route.routes[0].geometry.coordinates) {
+                  return (route.routes[0].geometry.coordinates as [number, number][]).map(c => [c[0], c[1]]).flat();
+                }
+              } catch (e) {
+                // ignore
+              }
+              return null;
+            };
+            
+            const flat = extractFlatCoords(fetchedRoute.data);
+            NavigationService.startNavigation(navigationSteps, undefined, 'driving', flat || undefined);
+            setLoadedRouteData(fetchedRoute.data);
+            onNewRouteCalculated?.(fetchedRoute.data);
+            onRouteReady?.();
+          } else {
+            console.warn('[RECALCUL] Échec du recalcul automatique');
+          }
+        } catch (e) {
+          console.warn('[RECALCUL] Erreur pendant le recalcul automatique:', e);
+        } finally {
+          setIsLoadingRoute(false);
+        }
+      };
+      
+      performRecalculation();
+    }
+  }, [isRecalculatingRoute, currentLocation]);
 
   // Responsive positioning for recenter button / bottom guidance
   const { width, height } = useWindowDimensions
@@ -120,10 +238,7 @@ export default function NavigationGuidance({
   useEffect(() => {
     let mounted = true;
     const loadRoute = async () => {
-      console.log('[NavigationGuidance] loadRoute start', { visible, hasRouteData: routeData != null, hasRouteRequest: routeRequest != null });
-      
       if (!visible) {
-        console.log('[NavigationGuidance] loadRoute aborted: visible=false');
         return;
       }
 
@@ -143,29 +258,49 @@ export default function NavigationGuidance({
         return null;
       };
 
+      // Priority 1: Use structured navigationData if available
+      if (navigationData) {
+        try {
+          const navigationSteps = NavigationService.convertRouteToNavigationSteps(navigationData.routeData);
+          const flat = extractFlatCoords(navigationData.routeData);
+          NavigationService.startNavigation(navigationSteps, undefined, undefined, flat || undefined);
+          setIsLoadingRoute(false);
+          onRouteReady?.();
+        } catch (e) {
+          console.warn("Erreur lors du démarrage de la navigation depuis navigationData", e);
+        }
+        return;
+      }
+
+      // Priority 2: Use routeData if available
       if ((routeData as any) != null) {
-        console.log('[NavigationGuidance] Using provided routeData -> start navigation');
         try {
           const navigationSteps =
             NavigationService.convertRouteToNavigationSteps(routeData);
           const flat = extractFlatCoords(routeData);
           NavigationService.startNavigation(navigationSteps, undefined, undefined, flat || undefined);
+          setLoadedRouteData(routeData);
           onRouteReady?.();
         } catch (e) {
           console.warn(
-            "Erreur lors du d\u00e9marrage de la navigation depuis routeData",
+            "Erreur lors du démarrage de la navigation depuis routeData",
             e
           );
         }
         return;
       }
 
-      if (!routeRequest) {
-        console.log('[NavigationGuidance] No routeRequest provided; nothing to fetch');
+      // Priority 3: Use previously loaded route data if no new request
+      if (!routeRequest && loadedRouteData) {
+        setIsLoadingRoute(false);
         return;
       }
 
-      console.log('[NavigationGuidance] No routeData; will fetch route from hosts');
+      if (!routeRequest) {
+        return;
+      }
+
+      console.log('[RECALCUL] NavigationGuidance starting route fetch for recalculation');
       setIsLoadingRoute(true);
       try {
         const { start, end, mode } = routeRequest;
@@ -181,26 +316,25 @@ export default function NavigationGuidance({
           "https://routing.openstreetmap.de",
         ];
         let fetchedRoute: any = null;
-        console.log('[NavigationGuidance] Trying hosts:', hosts);
+        console.log('[RECALCUL] Trying hosts for route recalculation:', hosts);
         for (const host of hosts) {
           try {
-            console.log(`[NavigationGuidance] Attempting host: ${host}`);
-            // routing.openstreetmap.de routed-car endpoint expects the same path but under /routed-car
+            console.log(`[RECALCUL] Attempting host: ${host}`);
             const url = `${host}/route/v1/${osrmMode}/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true&alternatives=true`;
             const res = await fetch(url);
-            console.log(`[NavigationGuidance] Host ${host} response:`, res.status, res.ok);
+            console.log(`[RECALCUL] Host ${host} response:`, res.status, res.ok);
             if (!res.ok) continue;
             const d = await res.json();
             if (d && d.routes && d.routes.length > 0) {
-              console.log(`[NavigationGuidance] Host ${host} returned route`);
+              console.log(`[RECALCUL] Host ${host} returned route successfully`);
               fetchedRoute = d;
               break;
             } else {
-              console.log(`[NavigationGuidance] Host ${host} returned no routes`);
+              console.log(`[RECALCUL] Host ${host} returned no routes`);
               continue;
             }
           } catch (e) {
-            console.warn(`[NavigationGuidance] Host ${host} fetch error:`, e);
+            console.warn(`[RECALCUL] Host ${host} fetch error:`, e);
             continue;
           }
         }
@@ -214,7 +348,7 @@ export default function NavigationGuidance({
                 process.env.ORS_API_KEY));
           if (ORS_KEY) {
             try {
-              console.log('[NavigationGuidance] Trying ORS fallback');
+              console.log('[RECALCUL] Trying ORS fallback for recalculation');
               const profile =
                 osrmMode === "bike"
                   ? "cycling-regular"
@@ -225,37 +359,39 @@ export default function NavigationGuidance({
               const res = await fetch(url, {
                 headers: { Authorization: ORS_KEY },
               });
-              console.log('[NavigationGuidance] ORS response:', res.status, res.ok);
+              console.log('[RECALCUL] ORS response:', res.status, res.ok);
               if (res.ok) {
                 const d = await res.json();
                 if (d && d.features && d.features.length > 0) {
-                  console.log('[NavigationGuidance] ORS returned route');
+                  console.log('[RECALCUL] ORS returned route successfully');
                   fetchedRoute = d;
                 } else {
-                  console.log('[NavigationGuidance] ORS returned no features');
+                  console.log('[RECALCUL] ORS returned no features');
                 }
               }
             } catch (e) {
-              console.warn("[NavigationGuidance] ORS fetch error:", e);
-              // ignore
+              console.warn("[RECALCUL] ORS fetch error:", e);
             }
           }
         }
 
         if (mounted && fetchedRoute) {
+          console.log('[RECALCUL] Starting navigation with fetched recalculated route');
           const navigationSteps = NavigationService.convertRouteToNavigationSteps(fetchedRoute);
           const flat = extractFlatCoords(fetchedRoute);
           NavigationService.startNavigation(navigationSteps, undefined, osrmMode, flat || undefined);
+          setLoadedRouteData(fetchedRoute);
+          // Transmit the new route to parent for map display update
+          onNewRouteCalculated?.(fetchedRoute);
           onRouteReady?.();
+        } else if (mounted && !fetchedRoute) {
+          console.warn('[RECALCUL] Failed to fetch route for recalculation');
         }
       } catch (e) {
-        console.warn(
-          "Erreur lors du chargement de l'itin\u00e9raire dans NavigationGuidance",
-          e
-        );
+        console.warn("[RECALCUL] Erreur lors du chargement de l'itinéraire de recalcul dans NavigationGuidance", e);
       } finally {
         if (mounted) {
-          console.log('[NavigationGuidance] loadRoute finished, setIsLoadingRoute(false)');
+          console.log('[RECALCUL] NavigationGuidance route fetch finished, setIsLoadingRoute(false)');
           setIsLoadingRoute(false);
         }
       }
@@ -265,9 +401,8 @@ export default function NavigationGuidance({
     return () => {
       mounted = false;
     };
-  }, [routeRequest, routeData, visible]);
+  }, [routeRequest, routeData, navigationData, visible]);
 
-  // Fade the guidance in/out when visible changes or navigation state updates.
   useEffect(() => {
     Animated.timing(fadeAnim, {
       toValue: visible ? 1 : 0,
@@ -275,18 +410,6 @@ export default function NavigationGuidance({
       useNativeDriver: true,
     }).start();
   }, [visible, navigationState.isNavigating]);
-
-  // Debug lifecycle & spinner state
-  useEffect(() => {
-    console.log('[NavigationGuidance] mounted');
-    return () => {
-      console.log('[NavigationGuidance] unmounted');
-    };
-  }, []);
-
-  useEffect(() => {
-    console.log('[NavigationGuidance] isLoadingRoute=', isLoadingRoute);
-  }, [isLoadingRoute]);
 
 
   const handleStopNavigation = () => {
@@ -433,17 +556,17 @@ export default function NavigationGuidance({
         )}
 
         {/* Barre de recalcul / off-route */}
-  {(effectiveIsOffRoute && (
+        {effectiveIsOffRoute ? (
           <View style={[styles.recalculatingBar, styles.offRouteBar]}>
             <ActivityIndicator size="small" color="#FF3B30" />
             <Text style={[styles.recalculatingText, styles.offRouteText]}>Vous avez quitté l'itinéraire</Text>
           </View>
-        )) || ((isRecalculatingRoute || isLoadingRoute) && (
+        ) : (isRecalculatingRoute || isLoadingRoute) ? (
           <View style={styles.recalculatingBar}>
             <ActivityIndicator size="small" color="#007AFF" />
             <Text style={styles.recalculatingText}>Calcul de l'itinéraire...</Text>
           </View>
-        ))}
+        ) : null}
       </SafeAreaView>
 
       {/* Barre de statut en bas - Informations globales ou prompt de recentrage */}

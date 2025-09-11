@@ -37,8 +37,14 @@ export default function SettingsOverlay({ visible, onClose, onImportGpx }: Props
   }, [currentPage.key]);
   // Read app metadata from package/app.json (kept in sync by build)
   const appName = "LMC Maps DEV";
-  const appVersion = "1.0.1";
   const packageName = "com.lotus64.lmcmaps";
+  let appVersion = "Unknown version";
+  try {
+    // load version from app.json if present
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const appJson = require('../app.json');
+    appVersion = appJson?.expo?.version ?? appVersion;
+  } catch (_) {}
   const favicon = require("../assets/favicon.png");
   
   return (

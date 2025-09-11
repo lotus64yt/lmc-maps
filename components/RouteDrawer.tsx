@@ -36,7 +36,7 @@ interface RouteDrawerProps {
   destination: Destination | null;
   onClose: () => void;
   onStartNavigation: (transportMode: string) => void;
-  onTransportModeChange?: (mode: string, destination: Destination) => void;
+  onTransportModeChange?: (mode: string, destination: Destination, options?: { alternatives?: number; avoidTolls?: boolean; avoidHighways?: boolean }) => void;
   userLocation: { latitude: number; longitude: number } | null;
   isCalculatingRoute?: boolean;
   isOsrmAvailable?: boolean;
@@ -53,6 +53,9 @@ interface RouteDrawerProps {
   // Notifie le parent quand le drawer passe en mode expandé / réduit
   onExpandChange?: (isExpanded: boolean) => void;
   onOpened?: () => void;
+  alternatives?: Array<{ coords?: any[]; duration?: number; distance?: number }>;
+  selectedAlternativeIndex?: number;
+  onSelectAlternative?: (index: number) => void;
 }
 
 const { height: screenHeight } = Dimensions.get("window");
@@ -75,6 +78,9 @@ export default function RouteDrawer({
   userInteractionAt,
   onExpandChange,
   onOpened,
+  alternatives: alternativeList = [],
+  selectedAlternativeIndex = 0,
+  onSelectAlternative,
 }: RouteDrawerProps) {
   const { fitToRoute, setDrawerCameraControl, releaseDrawerCameraControl } =
     useMapControls();
@@ -83,6 +89,9 @@ export default function RouteDrawer({
   const translateY = useRef(new Animated.Value(DRAWER_HEIGHT)).current;
   const handleBounce = useRef(new Animated.Value(0)).current;
   const [selectedTransport, setSelectedTransport] = React.useState("driving");
+  const [avoidTolls, setAvoidTolls] = React.useState(false);
+  const [avoidHighways, setAvoidHighways] = React.useState(false);
+  const [alternatives, setAlternatives] = React.useState<number>(1);
   const [isExpanded, setIsExpanded] = React.useState(false);
   const inactivityTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const inactivityAnimRef = React.useRef<Animated.CompositeAnimation | null>(
@@ -102,7 +111,9 @@ export default function RouteDrawer({
 
     // Déclencher l'affichage du trajet sur la carte
     if (onTransportModeChange && destination) {
-      onTransportModeChange(modeId, destination);
+  // Pass routing options through the callback so the service can request alternatives / avoid options
+  // The parent `App.tsx` or whoever implements the callback should call `routeService.getRoutes(start, end, mode, options)`
+  (onTransportModeChange as any)(modeId, destination, { alternatives, avoidTolls, avoidHighways });
     }
   };
 
@@ -431,7 +442,7 @@ export default function RouteDrawer({
         destination &&
         !isCalculatingRoute // do not trigger a new calculation if already running
       ) {
-        onTransportModeChange("driving", destination);
+        (onTransportModeChange as any)("driving", destination, { alternatives, avoidTolls, avoidHighways });
       }
       // Camera fit is handled by parent (App.tsx) via onOpened so it can supply the full route geometry.
     } else {
@@ -583,6 +594,32 @@ export default function RouteDrawer({
               </TouchableOpacity>
             </View>
 
+            {/* Alternatives (si disponibles) */}
+            {alternativeList && alternativeList.length > 0 && (
+              <View style={styles.alternativesSection}>
+                <Text style={styles.sectionTitle}>Itinéraires alternatifs</Text>
+                <View style={styles.alternativesList}>
+                  {alternativeList.map((alt, idx) => (
+                    <TouchableOpacity
+                      key={`alt-${idx}`}
+                      style={[
+                        styles.altListItem,
+                        idx === selectedAlternativeIndex && styles.altListItemSelected,
+                      ]}
+                      onPress={() => {
+                        if (onSelectAlternative) onSelectAlternative(idx);
+                        resetInactivityTimer();
+                      }}
+                    >
+                      <Text style={idx === selectedAlternativeIndex ? styles.altListTextSelected : styles.altListText}>
+                        {`#${idx + 1} • ${alt.duration ? `${alt.duration} min` : '--'} • ${alt.distance ? `${Math.round(alt.distance/1000*10)/10} km` : '--'}`}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
             {/* Modes de transport + détails + actions */}
             <View style={styles.transportSection}>
               <Text style={styles.sectionTitle}>Modes de transport</Text>
@@ -636,7 +673,77 @@ export default function RouteDrawer({
               </View>
             </View>
 
-            <View style={styles.routeDetails}>
+              <View style={styles.routeOptions}>
+                <Text style={styles.sectionTitle}>Options de recherche</Text>
+                <View style={styles.optionsRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.optionToggle,
+                      avoidTolls && styles.optionToggleActive,
+                    ]}
+                    onPress={() => {
+                      setAvoidTolls((v) => !v);
+                      resetInactivityTimer();
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.optionText,
+                        avoidTolls && styles.optionTextActive,
+                      ]}
+                    >
+                      Sans péages
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.optionToggle,
+                      avoidHighways && styles.optionToggleActive,
+                    ]}
+                    onPress={() => {
+                      setAvoidHighways((v) => !v);
+                      resetInactivityTimer();
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.optionText,
+                        avoidHighways && styles.optionTextActive,
+                      ]}
+                    >
+                      Sans autoroutes
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.alternativesRow}>
+                  <Text style={styles.altLabel}>Alternatives</Text>
+                  <View style={styles.altButtons}>
+                    {[1, 2, 3].map((n) => (
+                      <TouchableOpacity
+                        key={n}
+                        style={[
+                          styles.altButton,
+                          alternatives === n && styles.altButtonActive,
+                        ]}
+                        onPress={() => {
+                          setAlternatives(n);
+                          resetInactivityTimer();
+                        }}
+                      >
+                        <Text
+                          style={alternatives === n ? styles.altTextActive : styles.altText}
+                        >
+                          {n}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.routeDetails}>
               <Text style={styles.sectionTitle}>Détails du trajet</Text>
               <View style={styles.routeInfo}>
                 {transportModes.find((m) => m.id === selectedTransport) && (
@@ -855,6 +962,85 @@ const styles = StyleSheet.create({
   },
   routeDetails: {
     marginBottom: 24,
+  },
+  routeOptions: {
+    marginBottom: 16,
+  },
+  optionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  optionToggle: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#F2F3F5',
+  },
+  optionToggleActive: {
+    backgroundColor: '#007AFF',
+  },
+  optionText: {
+    color: '#333',
+    fontWeight: '600',
+  },
+  optionTextActive: {
+    color: '#fff',
+  },
+  alternativesSection: {
+    marginBottom: 12,
+  },
+  alternativesList: {
+    flexDirection: 'column',
+    gap: 8,
+  },
+  altListItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#F5F6F8',
+  },
+  altListItemSelected: {
+    backgroundColor: '#007AFF',
+  },
+  altListText: {
+    color: '#333',
+    fontWeight: '600',
+  },
+  altListTextSelected: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  alternativesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  altLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '600',
+  },
+  altButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  altButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#F2F3F5',
+  },
+  altButtonActive: {
+    backgroundColor: '#007AFF',
+  },
+  altText: {
+    color: '#333',
+    fontWeight: '700',
+  },
+  altTextActive: {
+    color: '#fff',
+    fontWeight: '700',
   },
   routeInfo: {
     backgroundColor: "#F8F9FA",

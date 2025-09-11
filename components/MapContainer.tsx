@@ -61,6 +61,12 @@ interface MapContainerProps {
   previewMarkerCoordinate?: Coordinate | null;
   previewMarkerBearing?: number;
   gpxRouteCoords?: Coordinate[];
+  alternativeRoutes?: Array<{
+    coords: Coordinate[];
+    duration?: number;
+    distance?: number;
+  }>;
+  selectedAlternativeIndex?: number;
 }
 
 export default function MapContainer({
@@ -96,6 +102,8 @@ export default function MapContainer({
   previewMarkerCoordinate,
   previewMarkerBearing,
   gpxRouteCoords = [],
+  alternativeRoutes = [],
+  selectedAlternativeIndex = 0,
 }: MapContainerProps) {
   // ...existing code...
   // Utiliser le contexte MapView
@@ -111,6 +119,17 @@ export default function MapContainer({
   const { heading: mapHeading } = useMapView();
 
   const { heading } = useLocationService();
+
+  // Debug: tracer les changements de routeCoords
+  useEffect(() => {
+    console.log('[MAP] 📍 RouteCoords mis à jour:', routeCoords.length, 'points');
+    if (routeCoords.length > 0) {
+      console.log('[MAP] Premiers points de la nouvelle route:', routeCoords.slice(0, 3));
+      console.log('[MAP] ✅ NOUVEAU CHEMIN DEVRAIT ÊTRE AFFICHÉ SUR LA CARTE');
+    } else {
+      console.log('[MAP] ❌ Aucune coordonnée de route - chemin vidé');
+    }
+  }, [routeCoords]);
 
   const [initialCenter, setInitialCenter] = useState<[number, number] | null>(
     null
@@ -397,10 +416,10 @@ export default function MapContainer({
   useEffect(() => {
     if (!location || !isMapReady) return;
 
-  const now = Date.now();
-  // Rendre la caméra plus réactive en navigation
-  const MIN_UPDATE_INTERVAL = isNavigating ? 300 : 1000; // ms
-  const MIN_DISTANCE_THRESHOLD = isNavigating ? 1 : 5; // mètres
+    const now = Date.now();
+    // Rendre la caméra plus réactive en navigation
+    const MIN_UPDATE_INTERVAL = isNavigating ? 300 : 1000; // ms
+    const MIN_DISTANCE_THRESHOLD = isNavigating ? 1 : 5; // mètres
 
     // Vérifier si assez de temps s'est écoulé
     if (
@@ -437,8 +456,8 @@ export default function MapContainer({
         longitude: location.longitude,
         timestamp: now,
       };
-  // Prefer overlay marker while navigating unless user has manually moved the map
-  if (!touchMovedRef.current) setUseOverlayMarker(true);
+      // Prefer overlay marker while navigating unless user has manually moved the map
+      if (!touchMovedRef.current) setUseOverlayMarker(true);
     } else if (!hasZoomedToUser) {
       // Première fois : zoom modéré sur la position utilisateur
       setCameraConfig({
@@ -568,10 +587,13 @@ export default function MapContainer({
   };
 
   // Générer des IDs uniques pour les sources pour éviter les conflits Mapbox
-  const currentTimestamp = Date.now();
-  const routeSourceId = `route-source-${currentTimestamp}`;
-  const directLineSourceId = `direct-line-source-${currentTimestamp}`;
-  const intersectionsSourceId = `intersections-source-${currentTimestamp}`;
+  // Use a stable instance id so source/layer ids do not change across renders
+  const instanceIdRef = useRef<string | null>(null);
+  if (instanceIdRef.current === null) instanceIdRef.current = `${Date.now()}`;
+  const instanceId = instanceIdRef.current;
+  const routeSourceId = `route-source-${instanceId}`;
+  const directLineSourceId = `direct-line-source-${instanceId}`;
+  const intersectionsSourceId = `intersections-source-${instanceId}`;
 
   // Fonction pour détecter les virages serrés dans la route
   function detectSharpTurnsInRoute(
@@ -795,14 +817,13 @@ export default function MapContainer({
           isNavigating &&
           (completedRouteGeoJSON || remainingRouteGeoJSON) ? (
             <>
-              
               {remainingRouteGeoJSON && (
                 <ShapeSource
-                  id={`remaining-route-${currentTimestamp}`}
+                  id={`remaining-route-${instanceId}`}
                   shape={remainingRouteGeoJSON}
                 >
                   <LineLayer
-                    id={`remaining-route-layer-${currentTimestamp}`}
+                    id={`remaining-route-layer-${instanceId}`}
                     style={{
                       lineColor: "#007AFF", // Bleu pour la route restante
                       lineWidth: 4,
@@ -816,26 +837,67 @@ export default function MapContainer({
           ) : (
             /* Route normale (quand pas en navigation ou pas de données de progression) */
             isMapReady &&
-            routeCoords.length > 0 && (
-              <ShapeSource id={routeSourceId} shape={routeGeoJSON}>
-                <LineLayer
-                  id={`route-layer-${currentTimestamp}`}
-                  style={{
-                    lineColor: "#007AFF",
-                    lineWidth: 4,
-                    lineCap: "round",
-                    lineJoin: "round",
-                  }}
-                />
-              </ShapeSource>
-            )
+            (alternativeRoutes && alternativeRoutes.length > 0 ? (
+              // Render each alternative route
+              <>
+                {alternativeRoutes.map((alt, idx) => {
+                  if (!alt || !alt.coords || alt.coords.length === 0)
+                    return null;
+                  const shape = {
+                    type: "Feature" as const,
+                    properties: {},
+                    geometry: {
+                      type: "LineString" as const,
+                      coordinates: alt.coords.map((c) => [
+                        c.longitude,
+                        c.latitude,
+                      ]),
+                    },
+                  };
+                  const isSelected = idx === (selectedAlternativeIndex || 0);
+                  return (
+                    <ShapeSource
+                      key={`alt-${idx}-${instanceId}`}
+                      id={`alt-route-${idx}-${instanceId}`}
+                      shape={shape}
+                    >
+                      <LineLayer
+                        id={`alt-route-layer-${idx}-${instanceId}`}
+                        style={{
+                          lineColor: isSelected ? "#007AFF" : "#B0B0B0",
+                          lineWidth: isSelected ? 5 : 3,
+                          lineCap: "round",
+                          lineJoin: "round",
+                          lineOpacity: isSelected ? 1 : 0.8,
+                        }}
+                      />
+                    </ShapeSource>
+                  );
+                })}
+              </>
+            ) : (
+              isMapReady &&
+              routeCoords.length > 0 && (
+                <ShapeSource id={routeSourceId} shape={routeGeoJSON}>
+                  <LineLayer
+                    id={`route-layer-${instanceId}`}
+                    style={{
+                      lineColor: "#007AFF",
+                      lineWidth: 4,
+                      lineCap: "round",
+                      lineJoin: "round",
+                    }}
+                  />
+                </ShapeSource>
+              )
+            ))
           )}
 
           {/* Ligne à vol d'oiseau (en plus de la route normale si besoin) */}
           {isMapReady && directLineGeoJSON && (
             <ShapeSource id={directLineSourceId} shape={directLineGeoJSON}>
               <LineLayer
-                id={`direct-line-layer-${currentTimestamp}`}
+                id={`direct-line-layer-${instanceId}`}
                 style={{
                   lineColor: "#FF6B35",
                   lineWidth: 3,
@@ -880,15 +942,18 @@ export default function MapContainer({
                   }}
                 />
 
-                <CircleLayer
-                  id="user-location-dot"
-                  style={{
-                    circleRadius: 18,
-                    circleColor: "#007AFF",
-                    circleStrokeColor: "white",
-                    circleStrokeWidth: 3,
-                  }}
-                />
+                {/* Afficher le cercle bleu seulement si on n'utilise pas UserLocationMarker */}
+                {useOverlayMarker && (
+                  <CircleLayer
+                    id="user-location-dot"
+                    style={{
+                      circleRadius: 18,
+                      circleColor: "#007AFF",
+                      circleStrokeColor: "white",
+                      circleStrokeWidth: 3,
+                    }}
+                  />
+                )}
               </ShapeSource>
             </>
           )}
@@ -928,16 +993,13 @@ export default function MapContainer({
             isFinite(location.latitude) &&
             !useOverlayMarker && (
               <PointAnnotation
+                key={`user-location-${isNavigating ? 'nav' : 'normal'}`}
                 id="user-location-arrow"
                 coordinate={[location.longitude, location.latitude]}
                 anchor={{ x: 0.5, y: 0.5 }}
               >
                 <UserLocationMarker
                   location={location}
-                  headingAnim={headingAnim}
-                  compassMode={compassMode}
-                  mapHeading={currentHeading}
-                  routeDirection={routeDirection}
                   isNavigating={isNavigating}
                   color={userLocationColor || "#007AFF"}
                 />
@@ -1035,7 +1097,7 @@ export default function MapContainer({
               shape={intersectionsGeoJSON}
             >
               <CircleLayer
-                id={`intersections-layer-${currentTimestamp}`}
+                id={`intersections-layer-${instanceId}`}
                 style={{
                   circleRadius: [
                     "case",
@@ -1197,90 +1259,6 @@ export default function MapContainer({
       )}
     </View>
   );
-
-  // Render fixed overlay marker above the map when requested
-  // (kept outside of MapView to appear as a stable UI element)
-  if (useOverlayMarker && isMapReady && location) {
-    return (
-      <View style={styles.container}>
-        {initialCenter && (
-          <MapView
-            ref={mapRef}
-            style={styles.map}
-            styleJSON={JSON.stringify(libertyStyle)}
-            onLongPress={handleMapPress}
-            onPress={handleMapPress}
-            onTouchStart={(e) => {
-              handleTouchStart(e);
-              if (onMapPanDrag) onMapPanDrag();
-            }}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={(e) => {
-              handleTouchEnd(e);
-            }}
-            onDidFinishLoadingMap={handleMapReady}
-            onCameraChanged={onCameraChanged}
-            logoEnabled={false}
-            attributionEnabled={false}
-            compassEnabled={false}
-            scaleBarEnabled={false}
-          >
-            {/* Keep Camera and layers but user marker handled by overlay */}
-            {isMapReady && (
-              <Camera
-                centerCoordinate={centerCoordinate || initialCenter}
-                zoomLevel={zoomLevel}
-                pitch={pitch}
-                heading={getCameraHeading()}
-                animationDuration={300}
-              />
-            )}
-          </MapView>
-        )}
-
-        {/* Overlay marker centered on screen */}
-        <View pointerEvents="none" style={styles.overlayMarkerContainer}>
-          <UserLocationMarker
-            location={location}
-            headingAnim={headingAnim}
-            compassMode={compassMode}
-            mapHeading={currentHeading}
-            routeDirection={routeDirection}
-            isNavigating={true}
-            color={userLocationColor || "#007AFF"}
-          />
-        </View>
-      </View>
-    );
-  }
-
-  // Fonction pour obtenir l'icône du maneuver
-  function getManeuverIcon(
-    maneuver: string
-  ): keyof typeof MaterialIcons.glyphMap {
-    switch (maneuver) {
-      case "turn-left":
-        return "turn-left";
-      case "turn-right":
-        return "turn-right";
-      case "turn-sharp-left":
-        return "turn-sharp-left";
-      case "turn-sharp-right":
-        return "turn-sharp-right";
-      case "turn-slight-left":
-        return "turn-slight-left";
-      case "turn-slight-right":
-        return "turn-slight-right";
-      case "straight":
-        return "straight";
-      case "roundabout":
-        return "roundabout-left";
-      case "merge":
-        return "merge";
-      default:
-        return "navigation";
-    }
-  }
 }
 
 const styles = StyleSheet.create({
@@ -1481,16 +1459,16 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   overlayMarkerContainer: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
+    position: "absolute",
+    top: "50%",
+    left: "50%",
     transform: [{ translateX: -20 }, { translateY: -20 }],
     width: 40,
     height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     zIndex: 999,
     elevation: 20,
-    pointerEvents: 'none',
+    pointerEvents: "none",
   },
 });

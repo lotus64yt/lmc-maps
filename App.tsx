@@ -41,13 +41,15 @@ import FavoritesDrawer from "./components/FavoritesDrawer";
 import NavigationStepDrawer from "./components/NavigationStepDrawer";
 import ArrivalDrawer from "./components/ArrivalDrawer";
 import ParkingDrawer from "./components/ParkingDrawer";
+import FavoritesDebugPanel from "./components/FavoritesDebugPanel";
 import { MapViewProvider } from "./contexts/MapViewContext";
 import { LabsProvider } from "./contexts/LabsContext";
 import { useLocationAndNavigation } from "./hooks/useLocationAndNavigation";
 import { useMapControls } from "./hooks/useMapControls";
 import { OverpassPOI, OverpassService } from "./services/OverpassService";
 import { RouteStep } from "./types/RouteTypes";
-import { Coordinate } from "./services/RouteService";
+import { Coordinate, NavigationData } from "./services/RouteService";
+import { fetchParallelRouting } from "./services/RouteService";
 import NavigationService from "./services/NavigationService";
 import { LastTripStorage, LastTripData } from "./services/LastTripStorage";
 import ResumeTripModal from "./components/ResumeTripModal";
@@ -115,6 +117,17 @@ function MapContent() {
 
   // Pour la couleur du marker utilisateur
   const [isUserLocationStale, setIsUserLocationStale] = useState(true);
+
+  // Synchroniser navigationData avec les données du routeService
+  useEffect(() => {
+    if (routeService && routeService.lastRawRouteData) {
+      const navData = routeService.getNavigationData();
+      if (navData) {
+        setNavigationData(navData);
+        console.log('🔄 Updated navigation data from routeService:', navData);
+      }
+    }
+  }, [routeService?.lastRawRouteData]);
 
   useEffect(() => {
     // Timer de 10s pour la récupération de la position
@@ -187,6 +200,17 @@ function MapContent() {
   const [showMultiStepDrawer, setShowMultiStepDrawer] = useState(false);
   const [routeSteps, setRouteSteps] = useState<RouteStep[]>([]);
   const [multiStepRouteCoords, setMultiStepRouteCoords] = useState<any[]>([]);
+
+  // Cache pour les données de navigation - évite les requêtes API redondantes
+  const [cachedNavigationData, setCachedNavigationData] = useState<{
+    routeData: any | null;
+    navigationSteps: any[] | null;
+    cacheKey: string | null; // Clé basée sur start/end/mode pour identifier les données
+  }>({
+    routeData: null,
+    navigationSteps: null,
+    cacheKey: null,
+  });
   // Imported GPX preview coordinates (do not override route service data)
   const [importedRouteCoords, setImportedRouteCoords] = useState<
     { latitude: number; longitude: number; elevation?: number }[]
@@ -231,14 +255,27 @@ function MapContent() {
       setCurrentStepIndex(0);
       setIsNavigating(true);
       setShowNavigationGuidance(true);
+      startDrivingNavigation();
     }
   };
 
   // États pour la navigation
   const [isNavigating, setIsNavigating] = useState(false);
+  
+  // Debug: log changes to isNavigating
+  useEffect(() => {
+    console.log('[App.tsx] isNavigating changed to:', isNavigating);
+  }, [isNavigating]);
+  
   const [navigationSteps, setNavigationSteps] = useState<any[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isRecalculatingRoute, setIsRecalculatingRoute] = useState(false);
+
+  // Debug: log changes to isRecalculatingRoute
+  useEffect(() => {
+    console.log('[App.tsx] isRecalculatingRoute changed to:', isRecalculatingRoute);
+  }, [isRecalculatingRoute]);
+
   const offRouteRecalcRunningRef = useRef(false);
   const [showNavigationGuidance, setShowNavigationGuidance] = useState(false);
   const [pendingRouteRequest, setPendingRouteRequest] = useState<{
@@ -246,6 +283,8 @@ function MapContent() {
     end: { latitude: number; longitude: number };
     mode: string;
   } | null>(null);
+  const [navigationData, setNavigationData] = useState<NavigationData | null>(null);
+  const [freshRouteData, setFreshRouteData] = useState<any>(null); // Données fraîches de la route du provider le plus rapide
 
   // États pour la progression de navigation
   const [completedRouteCoords, setCompletedRouteCoords] = useState<
@@ -289,6 +328,7 @@ function MapContent() {
   // Au démarrage, charger le dernier trajet inachevé
 
   const [showLocationInfoDrawer, setShowLocationInfoDrawer] = useState(false);
+  const [selectedAlternativeIndex, setSelectedAlternativeIndex] = useState<number>(0);
   const [selectedLocationCoordinate, setSelectedLocationCoordinate] =
     useState<Coordinate | null>(null);
   const [showLocationPoint, setShowLocationPoint] = useState(false);
@@ -414,6 +454,119 @@ function MapContent() {
   };
 
   // Fonctions pour le système de sécurité routière
+  // Fonction utilitaire pour générer une clé de cache pour les routes
+  const generateRouteCacheKey = (
+    start: { latitude: number; longitude: number },
+    end: { latitude: number; longitude: number },
+    mode: string,
+    waypoints?: Array<{ latitude: number; longitude: number }>
+  ): string => {
+    const startKey = `${start.latitude.toFixed(6)},${start.longitude.toFixed(6)}`;
+    const endKey = `${end.latitude.toFixed(6)},${end.longitude.toFixed(6)}`;
+    const waypointsKey = waypoints 
+      ? waypoints.map(wp => `${wp.latitude.toFixed(6)},${wp.longitude.toFixed(6)}`).join(';')
+      : '';
+    return `${startKey}-${endKey}-${mode}-${waypointsKey}`;
+  };
+
+  // Fonctions utilitaires pour extraire les données de route
+  const extractTotalDuration = (routeData: any): number => {
+    try {
+      // OSRM format
+      if (routeData.routes && routeData.routes[0]) {
+        return routeData.routes[0].duration || 0;
+      }
+      // ORS format  
+      if (routeData.features && routeData.features[0]) {
+        return routeData.features[0].properties?.summary?.duration || 0;
+      }
+      // Valhalla format
+      if (routeData.trip && routeData.trip.summary) {
+        return routeData.trip.summary.time || 0;
+      }
+    } catch (e) {
+      console.warn('Error extracting duration:', e);
+    }
+    return 0;
+  };
+
+  const extractTotalDistance = (routeData: any): number => {
+    try {
+      // OSRM format
+      if (routeData.routes && routeData.routes[0]) {
+        return routeData.routes[0].distance || 0;
+      }
+      // ORS format
+      if (routeData.features && routeData.features[0]) {
+        return routeData.features[0].properties?.summary?.distance || 0;
+      }
+      // Valhalla format  
+      if (routeData.trip && routeData.trip.summary) {
+        return routeData.trip.summary.length || 0;
+      }
+    } catch (e) {
+      console.warn('Error extracting distance:', e);
+    }
+    return 0;
+  };
+
+  // Fonction pour mettre en cache les données de navigation
+  const cacheNavigationData = (
+    start: { latitude: number; longitude: number },
+    end: { latitude: number; longitude: number },
+    mode: string,
+    routeData: any,
+    navigationSteps: any[],
+    waypoints?: Array<{ latitude: number; longitude: number }>
+  ) => {
+    const cacheKey = generateRouteCacheKey(start, end, mode, waypoints);
+    setCachedNavigationData({
+      routeData,
+      navigationSteps,
+      cacheKey,
+    });
+    
+    // Also ensure routeService has the latest data for immediate access
+    if (routeService && routeData) {
+      (routeService as any).lastRawRouteData = routeData;
+      
+      // Update navigationData with structured data
+      const navData = routeService.getNavigationData();
+      if (navData) {
+        setNavigationData(navData);
+        console.log('🔄 Updated navigationData from cacheNavigationData:', navData);
+      }
+    }
+    
+    console.log('📦 Navigation data cached with key:', cacheKey);
+  };
+
+  // Fonction pour récupérer les données en cache
+  const getCachedNavigationData = (
+    start: { latitude: number; longitude: number },
+    end: { latitude: number; longitude: number },
+    mode: string,
+    waypoints?: Array<{ latitude: number; longitude: number }>
+  ) => {
+    const cacheKey = generateRouteCacheKey(start, end, mode, waypoints);
+    if (cachedNavigationData.cacheKey === cacheKey) {
+      console.log('🎯 Using cached navigation data for key:', cacheKey);
+      return cachedNavigationData;
+    }
+    console.log('❌ No cached data found for key:', cacheKey, 'current cache:', cachedNavigationData.cacheKey);
+    return null;
+  };
+
+  // Fonction pour vider le cache (utile quand la position change significativement)
+  const clearNavigationCache = () => {
+    setCachedNavigationData({
+      routeData: null,
+      navigationSteps: null,
+      cacheKey: null,
+    });
+    console.log('🗑️ Navigation cache cleared');
+  };
+
   const checkTripSafety = (durationInMinutes: number) => {
     if (durationInMinutes > SafetyTestConfig.LONG_TRIP_THRESHOLD_MINUTES) {
       setLongTripDuration(durationInMinutes);
@@ -754,6 +907,16 @@ function MapContent() {
   const lastSentHeadingTimeRef = React.useRef<number>(0);
 
   useEffect(() => {
+    if (isNavigating && !isMapNavigating) {
+      if (navigationMode === "walking") {
+        startWalkingNavigation();
+      } else {
+        startDrivingNavigation();
+      }
+    }
+  }, [isNavigating, isMapNavigating]);
+
+  useEffect(() => {
     // En navigation, forcer la rotation de la carte pour se placer derrière la flèche
     if (isMapNavigating) {
       // Si on suit une route et qu'on est sur la route, utiliser le bearing de la route
@@ -915,6 +1078,15 @@ function MapContent() {
       setNavigationSteps(navigationState.steps);
       setCurrentStepIndex(navigationState.currentStepIndex);
 
+      // Force navigation mode when NavigationService starts
+      if (navigationState.isNavigating && !isMapNavigating) {
+        if (navigationMode === "walking") {
+          startWalkingNavigation();
+        } else {
+          startDrivingNavigation();
+        }
+      }
+
       // Mettre à jour les données de progression
       if (navigationState.completedRouteCoordinates) {
         setCompletedRouteCoords(
@@ -942,15 +1114,23 @@ function MapContent() {
         setProgressPercentage(navigationState.progressPercentage);
       }
 
-      // If NavigationService reports off-route, attempt a recalculation here using routeService
+      // If NavigationService reports off-route, check if it's already handling recalculation
       try {
         if (navigationState.isOffRoute) {
-          // Avoid concurrent recalculations
+          // If NavigationService is already recalculating, use its state
+          if (navigationState.isRecalculating) {
+            setIsRecalculatingRoute(true);
+            return; // Let NavigationService handle it
+          }
+          
+          // Avoid concurrent recalculations - only run if NavigationService didn't handle it
           if (!isRecalculatingRoute && !offRouteRecalcRunningRef.current) {
             offRouteRecalcRunningRef.current = true;
             (async () => {
               try {
                 setIsRecalculatingRoute(true);
+                console.log('🔄 App.tsx starting fallback recalculation...');
+                
                 // Choose a start point: prefer routeService.recalculateIfOffRoute() if available
                 const loc = navigationState.currentLocation || location;
                 let startPoint: any = loc;
@@ -970,7 +1150,7 @@ function MapContent() {
                   return;
                 }
 
-                // Use routing.openstreetmap.de via routeService.getHybridRoute
+                // Use parallel routing system via routeService.getHybridRoute
                 const ok = await routeService.getHybridRoute(startPoint, dest, 'driving');
                 if (ok) {
                   // Convert raw route data to navigation steps and start navigation from the new route
@@ -981,9 +1161,26 @@ function MapContent() {
                       ? (routeService.routeCoords as any[]).map((c: any) => [c.longitude, c.latitude]).flat()
                       : undefined;
                     await NavigationService.startNavigation(newSteps, routeService, 'driving', flat, dest);
+                    
+                    // Update fresh route data and navigation data for UI
+                    setFreshRouteData(fetched);
+                    
+                    // Update navigationData from the new route
+                    const navData = routeService.getNavigationData();
+                    if (navData) {
+                      setNavigationData(navData);
+                      console.log('🔄 Updated navigationData from recalculation:', navData);
+                    }
+                    
+                    // Cache the recalculated data
+                    const start: Coordinate = { latitude: startPoint.latitude, longitude: startPoint.longitude };
+                    const navigationSteps = NavigationService.convertRouteToNavigationSteps(fetched);
+                    cacheNavigationData(start, dest, 'driving', fetched, navigationSteps);
+                    
                     // Make sure guidance UI reflects completion
                     setPendingRouteRequest(null);
                     setShowNavigationGuidance(true);
+                    console.log('✅ App.tsx fallback recalculation completed');
                   } catch (e) {
                     console.warn('[App] failed to convert/apply new route steps', e);
                   }
@@ -1000,7 +1197,29 @@ function MapContent() {
           }
         } else {
           // If we are back on route, ensure recalculating flag is cleared
-          if (isRecalculatingRoute) setIsRecalculatingRoute(false);
+          if (isRecalculatingRoute) {
+            setIsRecalculatingRoute(false);
+            offRouteRecalcRunningRef.current = false;
+            // Force NavigationService to stop recalculating if it's still doing so
+            try {
+              if (NavigationService && typeof (NavigationService as any).stopRecalculation === 'function') {
+                (NavigationService as any).stopRecalculation();
+              }
+            } catch (e) {
+              // ignore
+            }
+          }
+        }
+        
+        // Sync recalculating state with NavigationService, but prioritize being back on route
+        if (!navigationState.isOffRoute && isRecalculatingRoute) {
+          // If we're back on route, force stop recalculating regardless of NavigationService state
+          setIsRecalculatingRoute(false);
+          offRouteRecalcRunningRef.current = false;
+        } else if (navigationState.isRecalculating && !isRecalculatingRoute && navigationState.isOffRoute) {
+          setIsRecalculatingRoute(true);
+        } else if (!navigationState.isRecalculating && isRecalculatingRoute && !offRouteRecalcRunningRef.current) {
+          setIsRecalculatingRoute(false);
         }
       } catch (e) {
         // ignore listener errors
@@ -1286,13 +1505,25 @@ function MapContent() {
             );
 
             // Calculer les étapes de navigation vers la destination finale
-            const url = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${location.longitude},${location.latitude};${finalDestination.longitude},${finalDestination.latitude}?overview=full&geometries=geojson&steps=true&alternatives=true`;
-            const response = await fetch(url);
-            const data = await response.json();
+            const routingResult = await fetchParallelRouting(
+              { latitude: location.latitude, longitude: location.longitude },
+              finalDestination,
+              "driving",
+              { alternatives: true }
+            );
 
-            if (data.routes && data.routes.length > 0) {
+            if (routingResult.success && routingResult.data?.routes?.length > 0) {
               const navigationSteps =
-                NavigationService.convertRouteToNavigationSteps(data);
+                NavigationService.convertRouteToNavigationSteps(routingResult.data);
+
+              // Cache les données pour éviter les requêtes futures
+              cacheNavigationData(
+                { latitude: location.latitude, longitude: location.longitude },
+                finalDestination,
+                "driving",
+                routingResult.data,
+                navigationSteps
+              );
 
               // Redémarrer la navigation vers la destination finale
               NavigationService.startNavigation(
@@ -1484,18 +1715,19 @@ function MapContent() {
                 // Debug: adding stopCoordinate
 
                 // Calculer un itinéraire multi-étapes : Position actuelle -> Arrêt -> Destination finale
-                const waypoints = [
-                  `${location.longitude},${location.latitude}`, // Position actuelle
-                  `${stopCoordinate.longitude},${stopCoordinate.latitude}`, // Arrêt
-                  `${finalDestination.longitude},${finalDestination.latitude}`, // Destination finale
-                ];
+                const waypoints = [stopCoordinate]; // Arrêt intermédiaire
+                
+                const routingResult = await fetchParallelRouting(
+                  { latitude: location.latitude, longitude: location.longitude }, // Position actuelle
+                  finalDestination, // Destination finale
+                  "driving",
+                  { 
+                    alternatives: true,
+                    waypoints: waypoints
+                  }
+                );
 
-                const waypointsUrl = waypoints.join(";");
-                const url = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${waypointsUrl}?overview=full&geometries=geojson&steps=true&alternatives=true`;
-                const response = await fetch(url);
-                const data = await response.json();
-
-                if (data.routes && data.routes.length > 0) {
+                if (routingResult.success && routingResult.data?.routes?.length > 0) {
                   // Calculer la nouvelle route hybride vers l'arrêt d'abord
                   await getHybridRouteFromCurrentLocation(
                     stopCoordinate,
@@ -1504,7 +1736,17 @@ function MapContent() {
 
                   // Convertir les étapes pour NavigationService (tout l'itinéraire multi-étapes)
                   const navigationSteps =
-                    NavigationService.convertRouteToNavigationSteps(data);
+                    NavigationService.convertRouteToNavigationSteps(routingResult.data);
+
+                  // Cache les données multi-étapes
+                  cacheNavigationData(
+                    { latitude: location.latitude, longitude: location.longitude },
+                    finalDestination,
+                    "driving",
+                    routingResult.data,
+                    navigationSteps,
+                    waypoints
+                  );
 
                   // Redémarrer la navigation avec l'itinéraire complet
                   NavigationService.startNavigation(
@@ -1735,30 +1977,39 @@ function MapContent() {
     if (routeSteps.length > 0 && location && multiStepRouteCoords.length > 0) {
       try {
         // Créer les coordonnées des waypoints pour l'API OSRM
-        const waypoints = [
-          { latitude: location.latitude, longitude: location.longitude },
-          ...routeSteps.map((step) => ({
-            latitude: step.latitude,
-            longitude: step.longitude,
-          })),
-        ];
+        // Extraire les waypoints intermédiaires (exclure le point de départ)
+        const intermediateWaypoints = routeSteps.map((step) => ({
+          latitude: step.latitude,
+          longitude: step.longitude,
+        }));
 
-        // Construire l'URL pour l'API OSRM avec tous les waypoints
-        const coordinates = waypoints
-          .map((wp) => `${wp.longitude},${wp.latitude}`)
-          .join(";");
-        const osrmMode = "driving"; // Mode par défaut pour multi-étapes
-        const url = `https://routing.openstreetmap.de/routed-car/route/v1/${osrmMode}/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=true`;
+        // Utiliser le système de routing parallèle
+        const routingResult = await fetchParallelRouting(
+          { latitude: location.latitude, longitude: location.longitude }, // Point de départ
+          intermediateWaypoints[intermediateWaypoints.length - 1], // Destination finale
+          "driving",
+          { 
+            alternatives: true,
+            waypoints: intermediateWaypoints.slice(0, -1) // Waypoints intermédiaires (sans la destination finale)
+          }
+        );
 
-        const response = await fetch(url);
-        const data = await response.json();
-
-        if (data.routes && data.routes.length > 0) {
+        if (routingResult.success && routingResult.data?.routes?.length > 0) {
           const navigationSteps =
-            NavigationService.convertRouteToNavigationSteps(data);
+            NavigationService.convertRouteToNavigationSteps(routingResult.data);
+
+          // Cache les données multi-étapes
+          cacheNavigationData(
+            { latitude: location.latitude, longitude: location.longitude },
+            intermediateWaypoints[intermediateWaypoints.length - 1],
+            "driving",
+            routingResult.data,
+            navigationSteps,
+            intermediateWaypoints.slice(0, -1)
+          );
 
           // Calculer la durée totale en minutes pour le check de sécurité
-          const routeDurationMinutes = Math.round(data.routes[0].duration / 60);
+          const routeDurationMinutes = Math.round(routingResult.data.routes[0].duration / 60);
 
           // Vérifier si c'est un long trajet (plus de 2h)
           const isLongTrip = checkTripSafety(routeDurationMinutes);
@@ -1773,7 +2024,7 @@ function MapContent() {
           NavigationService.startNavigation(
             navigationSteps,
             routeService,
-            osrmMode
+            "driving"
           );
           setIsNavigating(true);
         }
@@ -1948,9 +2199,58 @@ function MapContent() {
   const handleStartNavigation = async (transportMode: string = "driving") => {
     if (!selectedDestination || !location) return;
 
+    // Start the UI navigation mode (visual) IMMEDIATELY
+    if (transportMode === "walking") startWalkingNavigation();
+    else startDrivingNavigation();
+    setIsNavigating(true);
+
     // Close drawer immediately and show navigation guidance UI.
     setShowRouteDrawer(false);
     setShowNavigationGuidance(true);
+
+    console.log('🚀 Starting navigation with fresh route data:', freshRouteData);
+
+    // Use fresh route data from RouteDrawer if available
+    if (freshRouteData) {
+      console.log('✅ Using fresh route data for navigation');
+      
+      // Create navigation data directly from fresh route
+      const navData = {
+        routeData: freshRouteData,
+        totalDuration: extractTotalDuration(freshRouteData),
+        totalDistance: extractTotalDistance(freshRouteData), 
+        steps: []
+      };
+      
+      setNavigationData(navData);
+      setPendingRouteRequest(null);
+      setIsRecalculatingRoute(false);
+      
+      console.log('✅ Set navigation data from fresh route:', navData);
+      return;
+    }
+
+    // Use current routeService data if available and matches destination
+    const hasMatchingRouteData =
+      routeService &&
+      routeService.lastRawRouteData &&
+      routeService.destination &&
+      routeService.destination.latitude === selectedDestination.latitude &&
+      routeService.destination.longitude === selectedDestination.longitude;
+
+    if (hasMatchingRouteData) {
+      console.log('✅ Using current routeService data for navigation');
+      
+      // Create navigation data directly from routeService
+      const navData = routeService.getNavigationData();
+      if (navData) {
+        setNavigationData(navData);
+        setPendingRouteRequest(null);
+        setIsRecalculatingRoute(false);
+        console.log('✅ Set navigation data from routeService:', navData);
+        return;
+      }
+    }
 
     // Prepare routeRequest object that NavigationGuidance will handle.
     const start = {
@@ -1962,28 +2262,47 @@ function MapContent() {
       longitude: selectedDestination.longitude,
     };
 
-    // If we already have raw route data from the routeService that targets the same
-    // destination, reuse it to avoid duplicate requests.
-    const hasExistingRouteData =
-      routeService &&
-      routeService.lastRawRouteData &&
-      selectedDestination &&
-      routeService.destination &&
-      routeService.destination.latitude === selectedDestination.latitude &&
-      routeService.destination.longitude === selectedDestination.longitude;
-
-    if (hasExistingRouteData) {
-      // Pass routeData via NavigationGuidance by keeping pendingRequest null and
-      // relying on App's `routeService.lastRawRouteData` prop already wired to NavigationGuidance.
+    // Check for cached navigation data
+    const cachedData = getCachedNavigationData(start, end, transportMode);
+    
+    if (cachedData && cachedData.routeData && cachedData.navigationSteps) {
+      // Use cached data - no API request needed
+      console.log('🚀 Using cached navigation data, starting navigation immediately');
+      console.log('🔍 Cached route data:', cachedData.routeData);
+      
+      // Make sure the routeService has the cached data
+      if (routeService) {
+        (routeService as any).lastRawRouteData = cachedData.routeData;
+        console.log('✅ Set routeService.lastRawRouteData to cached data');
+        
+        // Extract structured navigation data directly from cached data
+        const navData = routeService.getNavigationData();
+        if (navData) {
+          setNavigationData(navData);
+          console.log('✅ Set structured navigation data:', navData);
+        } else {
+          // Fallback: create navigation data directly from cached data
+          console.log('⚠️ getNavigationData returned null, creating direct navigation data');
+          const directNavData = {
+            routeData: cachedData.routeData,
+            totalDuration: 0,
+            totalDistance: 0,
+            steps: cachedData.navigationSteps || []
+          };
+          setNavigationData(directNavData);
+          console.log('✅ Set direct navigation data:', directNavData);
+        }
+      } else {
+        console.warn('⚠️ No routeService available to set lastRawRouteData');
+      }
+      
+      // Let NavigationGuidance handle the navigation start with the cached data
       setPendingRouteRequest(null);
+      setIsRecalculatingRoute(false);
     } else {
       setPendingRouteRequest({ start, end, mode: transportMode });
-      setIsRecalculatingRoute(true);
     }
 
-    // Start the UI navigation mode (visual) immediately while guidance loads the route.
-    if (transportMode === "walking") startWalkingNavigation();
-    else startDrivingNavigation();
     // Quickly animate the camera to the user's position so NavigationGuidance appears faster
     if (location) {
       // zoom ~17, short duration for snappier transition
@@ -1994,8 +2313,6 @@ function MapContent() {
         300
       );
     }
-    // Protect route from being cleared while navigation is starting
-    setIsNavigating(true);
   };
 
   const handleStopNavigation = () => {
@@ -2011,6 +2328,9 @@ function MapContent() {
 
     // Effacer la route quand on arrête la navigation
     clearRoute();
+
+    // Clear navigation cache when stopping navigation
+    clearNavigationCache();
 
   // Reset any suppression flags so arrival UI behaves normally next time
   setSuppressArrivalDrawerOnNextArrival(false);
@@ -2038,12 +2358,12 @@ function MapContent() {
     // Si on est en navigation, garder la route affichée
   };
 
-  const handleTransportModeChange = async (mode: string, destination: any) => {
+  const handleTransportModeChange = async (mode: string, destination: any, options?: { alternatives?: number; avoidTolls?: boolean; avoidHighways?: boolean }) => {
     // Mémoriser si le mode suivi était actif et le désactiver temporairement
     const wasFollowing = disableFollowModeTemporarily();
     setWasFollowingBeforeRoute(wasFollowing);
 
-    if (location) {
+  if (location) {
       // Définir la destination pour l'affichage du marqueur
       const coord = {
         latitude: destination.latitude,
@@ -2068,8 +2388,60 @@ function MapContent() {
           break;
       }
 
-      // Calculer et afficher le trajet hybride selon le mode de transport
-      await getHybridRouteFromCurrentLocation(destination, osrmMode);
+      // If routeService supports multiple alternatives/options, use it
+      if (routeService && typeof (routeService as any).getRoutes === 'function') {
+        try {
+          const start: Coordinate = { latitude: location.latitude, longitude: location.longitude };
+          const routes = await (routeService as any).getRoutes(start, destination, mode, options || {});
+          
+          // Cache the navigation data if we have route data
+          if (routeService.lastRawRouteData && routes && routes.length > 0) {
+            const navigationSteps = NavigationService.convertRouteToNavigationSteps(routeService.lastRawRouteData);
+            cacheNavigationData(start, destination, mode, routeService.lastRawRouteData, navigationSteps);
+            
+            // Store fresh route data for immediate navigation use
+            setFreshRouteData(routeService.lastRawRouteData);
+            console.log('📍 Stored fresh route data from transport mode change:', routeService.lastRawRouteData);
+          }
+          
+          // routes array already sets the primary route in the service; choose first one
+          // Fit camera to routeCoords which were populated by the service
+          fitToRoute(
+            { latitude: location.latitude, longitude: location.longitude },
+            { latitude: destination.latitude, longitude: destination.longitude },
+            routeCoords,
+            true
+          );
+        } catch (e) {
+          // Fallback to hybrid route if getRoutes failed
+          await getHybridRouteFromCurrentLocation(destination, osrmMode);
+          
+          // Try to cache the fallback data too
+          if (routeService && routeService.lastRawRouteData) {
+            const start: Coordinate = { latitude: location.latitude, longitude: location.longitude };
+            const navigationSteps = NavigationService.convertRouteToNavigationSteps(routeService.lastRawRouteData);
+            cacheNavigationData(start, destination, mode, routeService.lastRawRouteData, navigationSteps);
+            
+            // Store fresh route data for immediate navigation use
+            setFreshRouteData(routeService.lastRawRouteData);
+            console.log('📍 Stored fresh route data from fallback:', routeService.lastRawRouteData);
+          }
+        }
+      } else {
+        // Calculer et afficher le trajet hybride selon le mode de transport
+        await getHybridRouteFromCurrentLocation(destination, osrmMode);
+        
+        // Cache the hybrid route data
+        if (routeService && routeService.lastRawRouteData) {
+          const start: Coordinate = { latitude: location.latitude, longitude: location.longitude };
+          const navigationSteps = NavigationService.convertRouteToNavigationSteps(routeService.lastRawRouteData);
+          cacheNavigationData(start, destination, mode, routeService.lastRawRouteData, navigationSteps);
+          
+          // Store fresh route data for immediate navigation use
+          setFreshRouteData(routeService.lastRawRouteData);
+          console.log('📍 Stored fresh route data from hybrid route:', routeService.lastRawRouteData);
+        }
+      }
 
       // Ajuster la vue pour afficher le trajet complet avec départ et arrivée
       fitToRoute(
@@ -2603,40 +2975,35 @@ function MapContent() {
           headingAnim={headingAnim}
           destination={destination}
           routeCoords={routeCoords}
+          alternativeRoutes={routeService ? routeService.lastAlternatives || [] : []}
+          selectedAlternativeIndex={selectedAlternativeIndex}
           gpxRouteCoords={importedRouteCoords}
           onLongPress={handleMapPress}
           compassMode={compassMode}
           currentHeading={currentHeading}
           onMapPanDrag={() => {
             handleMapPanDrag();
-            // Minimiser GPXDrawer si ouvert
             if (showGpxDrawer) setGpxMinimizeSignal((s) => s + 1);
           }}
           pois={allPOIs}
           selectedPOI={selectedPOI}
           isFirstLoad={!location}
-          isNavigating={isMapNavigating}
+          isNavigating={isNavigating}
           navigationMode={navigationMode}
-          showDirectLine={isMapNavigating && navigationMode === "walking"}
+          showDirectLine={isNavigating && navigationMode === "walking"}
           navigationSteps={navigationSteps}
           currentStepIndex={currentStepIndex}
           onNavigationStepPress={handleNavigationStepPress}
-          // Nouvelles props pour le tracé hybride
           directLineCoords={directLineCoords}
           nearestRoadPoint={nearestRoadPoint}
           hasDirectLineSegment={hasDirectLineSegment}
-          // Props pour le point de location sélectionné
           showLocationPoint={showLocationPoint}
           selectedLocationCoordinate={selectedLocationCoordinate}
-          // Props pour le parking sélectionné
           selectedParking={selectedParking}
-          // Nouvelles props pour la progression de navigation
           completedRouteCoords={completedRouteCoords}
           remainingRouteCoords={remainingRouteCoords}
           progressPercentage={progressPercentage}
-          // Nouvelle prop pour la direction de la route
           routeDirection={routeDirection}
-          
         />
 
   {isNavigating && <ProgressSidebar progressPercentage={progressPercentage} />}
@@ -2656,6 +3023,23 @@ function MapContent() {
           onClose={handleCloseDrawer}
           onStartNavigation={handleStartNavigation}
           onTransportModeChange={handleTransportModeChange}
+          alternatives={routeService ? routeService.lastAlternatives || [] : []}
+          selectedAlternativeIndex={selectedAlternativeIndex}
+          onSelectAlternative={async (index: number) => {
+            setSelectedAlternativeIndex(index);
+            if (routeService && typeof (routeService as any).selectAlternative === 'function') {
+              (routeService as any).selectAlternative(index);
+            }
+            // Fit camera to new selected route
+            if (location && selectedDestination) {
+              fitToRoute(
+                { latitude: location.latitude, longitude: location.longitude },
+                { latitude: selectedDestination.latitude, longitude: selectedDestination.longitude },
+                routeCoords,
+                true
+              );
+            }
+          }}
           onOpened={() => {
             // Re-apply fitToRoute once drawer animation completed so camera accounts for final drawer size
             const activeCoords =
@@ -2692,6 +3076,9 @@ function MapContent() {
           }
         />
 
+        {/* Debug Panel - Remove in production */}
+        <FavoritesDebugPanel />
+
         {/* GPX Drawer */}
         <GPXDrawer
           visible={showGpxDrawer}
@@ -2717,8 +3104,6 @@ function MapContent() {
 
               setPendingRouteRequest({ start: { latitude: location.latitude, longitude: location.longitude }, end: start, mode: navigationMode || 'driving' });
               setShowNavigationGuidance(true);
-              setIsRecalculatingRoute(true);
-              // Surveiller l'arrivée au point de départ et ouvrir GPXStartDrawer
               setGpxStartPoint(start);
               // Un check léger basé sur useEffect de location plus bas peut ouvrir le drawer
             }
@@ -2917,6 +3302,8 @@ function MapContent() {
           currentLocation={location}
           routeRequest={pendingRouteRequest}
           routeData={routeService ? routeService.lastRawRouteData : null}
+          navigationData={navigationData}
+          isOffRouteOverride={false}
           // Forward provider/timings for display/debug
           // (NavigationGuidance doesn't currently render these but they are available)
           // provider passed to RouteDrawer already; NavigationGuidance can inspect routeData
@@ -2927,6 +3314,24 @@ function MapContent() {
             setIsNavigating(true);
             setIsRecalculatingRoute(false);
             // Si on allait au départ GPX, continuer la surveillance d'arrivée
+          }}
+          onNewRouteCalculated={(newRouteData) => {
+            console.log('[CALLBACK] Nouvelle route reçue via callback:', newRouteData);
+            if (routeService && newRouteData) {
+              // Utiliser la méthode updateRouteData du service
+              routeService.updateRouteData(newRouteData);
+              
+              // Forcer le re-render avec les nouvelles données
+              setFreshRouteData(newRouteData);
+              
+              // Important : remettre isRecalculatingRoute à false
+              setIsRecalculatingRoute(false);
+              
+              // Important : remettre offRouteRecalcRunningRef à false pour éviter la boucle
+              offRouteRecalcRunningRef.current = false;
+              
+              console.log('[CALLBACK] ✅ Route mise à jour, isRecalculatingRoute = false, offRouteRecalc = false');
+            }
           }}
         />
 
@@ -3117,6 +3522,18 @@ function MapContent() {
             </View>
           </View>
         </Modal>
+
+        {/* Notification temporaire d'erreur de routing */}
+        {routeService.routingErrorMessage && (
+          <View style={styles.routingErrorNotification}>
+            <View style={styles.routingErrorContainer}>
+              <MaterialIcons name="error-outline" size={20} color="#FF6B6B" />
+              <Text style={styles.routingErrorText}>
+                {routeService.routingErrorMessage}
+              </Text>
+            </View>
+          </View>
+        )}
       </>
     </View>
   );
@@ -3275,5 +3692,38 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 22,
     marginBottom: 24,
+  },
+  // Styles pour les notifications temporaires d'erreur de routing
+  routingErrorNotification: {
+    position: "absolute",
+    top: 60,
+    left: 16,
+    right: 16,
+    zIndex: 10000,
+    alignItems: "center",
+  },
+  routingErrorContainer: {
+    backgroundColor: "#FFEBEE",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    maxWidth: "90%",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  routingErrorText: {
+    fontSize: 14,
+    color: "#D32F2F",
+    fontWeight: "500",
+    flex: 1,
   },
 });

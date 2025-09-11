@@ -1,4 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.lotus64.lmcmaps">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
   <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
@@ -36,6 +36,23 @@
         <data android:scheme="exp+lmc-maps"/>
       </intent-filter>
     </activity>
-  <!-- Widgets removed from manifest during CI build fix; restore if needed with unique receiver definitions or proper manifest-merge directives -->
+  <!-- Restored minimal widget receiver so widgets are available in preview builds. 
+       If you need multiple separate widget providers, add additional <receiver> entries
+       (or separate classes) following the pattern below, taking care to avoid duplicate
+       component names. -->
+  <receiver android:name=".WidgetProvider" android:exported="true">
+    <intent-filter>
+      <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+    </intent-filter>
+    <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_info" />
+  </receiver>
+  
+  <!-- Favorites dynamic widget -->
+  <receiver android:name=".FavoritesWidgetProvider" android:exported="true">
+    <intent-filter>
+      <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+    </intent-filter>
+    <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_info_favorites_dynamic" />
+  </receiver>
   </application>
 </manifest>

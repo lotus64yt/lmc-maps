@@ -19,6 +19,8 @@ class NavigationService {
     remainingRouteCoordinates: [],
     progressPercentage: 0,
     hasStartedMoving: false,
+    isOffRoute: false,
+    isRecalculating: false,
   };
   private locationSubscription: Location.LocationSubscription | null = null;
   private listeners: ((state: NavigationState) => void)[] = [];
@@ -69,14 +71,16 @@ class NavigationService {
         this.navigationState.progressPercentage = 0;
       }
 
-      // Clear off-route indicators and hysteresis so the UI hides the banner
+      // Clear off-route indicators, recalculation flag and hysteresis so the UI hides the banner
       this.navigationState.isOffRoute = false;
+      this.navigationState.isRecalculating = false;
       this.pendingRecalculation = false;
       this.offRouteCounter = 0;
       this.notifyListeners();
+      console.log('✅ Route recalculation completed successfully');
     } catch (e) {
       // ignore finalization errors but ensure flags are sane
-      try { this.pendingRecalculation = false; this.offRouteCounter = 0; } catch (_) {}
+      try { this.pendingRecalculation = false; this.offRouteCounter = 0; this.navigationState.isRecalculating = false; } catch (_) {}
     }
   }
 
@@ -365,6 +369,8 @@ async startNavigation(
     // Show off-route badge and mark pending recalculation
     this.navigationState.isOffRoute = true;
     this.pendingRecalculation = true;
+    // Signal that we are starting recalculation (for UI feedback)
+    this.navigationState.isRecalculating = true;
     this.notifyListeners();
 
     // Immediate recalculation: start now when banner appears (avoid waiting for hysteresis)
@@ -373,14 +379,17 @@ async startNavigation(
       // guard double attempts
       if (!this.pendingRecalculation) {
         this.pendingRecalculation = true;
+        this.navigationState.isRecalculating = true;
       }
 
       (async () => {
         try {
           Vibration.vibrate([50, 50, 50]);
+          console.log('🔄 Starting immediate route recalculation...');
           const fetchResult = await this.fetchNavigationStepsFromAPI(recalculationStart as { latitude: number; longitude: number }, this.lastTripDestination, this.currentMode);
           const newSteps = fetchResult?.steps || [];
           if (newSteps && newSteps.length > 0) {
+            console.log(`🔄 Recalculation successful: ${newSteps.length} new steps`);
             if (Array.isArray(fetchResult.flatCoords) && fetchResult.flatCoords.length >= 4) {
               this.routeCoordinates = fetchResult.flatCoords;
             } else {
@@ -392,9 +401,13 @@ async startNavigation(
             await this.finalizeRecalculation(newSteps, this.routeCoordinates);
           } else {
             console.warn('🔄 Immediate recalculation: failed to get navigation steps from API');
+            this.navigationState.isRecalculating = false;
+            this.notifyListeners();
           }
         } catch (err) {
           console.error('🔄 Immediate recalculation error:', err);
+          this.navigationState.isRecalculating = false;
+          this.notifyListeners();
         } finally {
           this.pendingRecalculation = false;
         }
