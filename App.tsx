@@ -1,34 +1,14 @@
 import React, { useState, useEffect, useRef } from "react";
-import {
-  StyleSheet,
-  View,
-  TouchableOpacity,
-  Text,
-  Modal,
-  Alert,
-  Dimensions,
-} from "react-native";
+import { View, TouchableOpacity, Text, Modal, Alert, Dimensions } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import * as DocumentPicker from "expo-document-picker";
 import { parseGPX } from "./utils/gpxParser";
+import { getDistanceMeters, getDistanceBetweenPoints, computeBearingTo } from "./app/utils/geo";
+import LocationTimeoutModal from "./app/ui/Modals/LocationTimeoutModal";
+import LocationErrorModal from "./app/ui/Modals/LocationErrorModal";
 
-function getDistanceMeters(
-  a: { latitude: number; longitude: number },
-  b: { latitude: number; longitude: number }
-) {
-  const toRad = (x: number) => (x * Math.PI) / 180;
-  const R = 6371000;
-  const dLat = toRad(b.latitude - a.latitude);
-  const dLon = toRad(b.longitude - a.longitude);
-  const lat1 = toRad(a.latitude);
-  const lat2 = toRad(b.latitude);
-  const aVal =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
-  const c = 2 * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal));
-  return R * c;
-}
+ 
 import MapContainer from "./components/MapContainer";
 import ControlButtons from "./components/ControlButtons";
 import ExpandableSearch from "./components/ExpandableSearch";
@@ -56,6 +36,8 @@ import NavigationService from "./services/NavigationService";
 import { LastTripStorage, LastTripData } from "./services/LastTripStorage";
 import ResumeTripModal from "./components/ResumeTripModal";
 import { SafetyTestConfig } from "./config/SafetyTestConfig";
+import styles from "./style/appStyles";
+import { useRoutingCache } from "./app/hooks/useRoutingCache";
 
 export default function Map() {
   return (
@@ -174,15 +156,13 @@ function MapContent() {
   const [routeSteps, setRouteSteps] = useState<RouteStep[]>([]);
   const [multiStepRouteCoords, setMultiStepRouteCoords] = useState<any[]>([]);
 
-  const [cachedNavigationData, setCachedNavigationData] = useState<{
-    routeData: any | null;
-    navigationSteps: any[] | null;
-    cacheKey: string | null;
-  }>({
-    routeData: null,
-    navigationSteps: null,
-    cacheKey: null,
-  });
+  const {
+    cacheNavigationData: cacheNavRaw,
+    getCachedNavigationData,
+    clearNavigationCache,
+    extractTotalDuration,
+    extractTotalDistance,
+  } = useRoutingCache();
   const [importedRouteCoords, setImportedRouteCoords] = useState<
     { latitude: number; longitude: number; elevation?: number }[]
   >([]);
@@ -403,54 +383,6 @@ function MapContent() {
     setLastTrip(null);
   };
 
-  const generateRouteCacheKey = (
-    start: { latitude: number; longitude: number },
-    end: { latitude: number; longitude: number },
-    mode: string,
-    waypoints?: Array<{ latitude: number; longitude: number }>
-  ): string => {
-    const startKey = `${start.latitude.toFixed(6)},${start.longitude.toFixed(
-      6
-    )}`;
-    const endKey = `${end.latitude.toFixed(6)},${end.longitude.toFixed(6)}`;
-    const waypointsKey = waypoints
-      ? waypoints
-          .map((wp) => `${wp.latitude.toFixed(6)},${wp.longitude.toFixed(6)}`)
-          .join(";")
-      : "";
-    return `${startKey}-${endKey}-${mode}-${waypointsKey}`;
-  };
-
-  const extractTotalDuration = (routeData: any): number => {
-    try {
-      if (routeData.routes && routeData.routes[0]) {
-        return routeData.routes[0].duration || 0;
-      }
-      if (routeData.features && routeData.features[0]) {
-        return routeData.features[0].properties?.summary?.duration || 0;
-      }
-      if (routeData.trip && routeData.trip.summary) {
-        return routeData.trip.summary.time || 0;
-      }
-    } catch (e) {}
-    return 0;
-  };
-
-  const extractTotalDistance = (routeData: any): number => {
-    try {
-      if (routeData.routes && routeData.routes[0]) {
-        return routeData.routes[0].distance || 0;
-      }
-      if (routeData.features && routeData.features[0]) {
-        return routeData.features[0].properties?.summary?.distance || 0;
-      }
-      if (routeData.trip && routeData.trip.summary) {
-        return routeData.trip.summary.length || 0;
-      }
-    } catch (e) {}
-    return 0;
-  };
-
   const cacheNavigationData = (
     start: { latitude: number; longitude: number },
     end: { latitude: number; longitude: number },
@@ -459,12 +391,7 @@ function MapContent() {
     navigationSteps: any[],
     waypoints?: Array<{ latitude: number; longitude: number }>
   ) => {
-    const cacheKey = generateRouteCacheKey(start, end, mode, waypoints);
-    setCachedNavigationData({
-      routeData,
-      navigationSteps,
-      cacheKey,
-    });
+    cacheNavRaw(start, end, mode, routeData, navigationSteps, waypoints);
 
     if (routeService && routeData) {
       (routeService as any).lastRawRouteData = routeData;
@@ -476,26 +403,7 @@ function MapContent() {
     }
   };
 
-  const getCachedNavigationData = (
-    start: { latitude: number; longitude: number },
-    end: { latitude: number; longitude: number },
-    mode: string,
-    waypoints?: Array<{ latitude: number; longitude: number }>
-  ) => {
-    const cacheKey = generateRouteCacheKey(start, end, mode, waypoints);
-    if (cachedNavigationData.cacheKey === cacheKey) {
-      return cachedNavigationData;
-    }
-    return null;
-  };
-
-  const clearNavigationCache = () => {
-    setCachedNavigationData({
-      routeData: null,
-      navigationSteps: null,
-      cacheKey: null,
-    });
-  };
+  
 
   const checkTripSafety = (durationInMinutes: number) => {
     if (durationInMinutes > SafetyTestConfig.LONG_TRIP_THRESHOLD_MINUTES) {
@@ -885,23 +793,6 @@ function MapContent() {
     if (location && isMapNavigating && !isParkingAnimating) {
       const currentNavState = NavigationService.getCurrentState();
 
-      const computeBearingTo = (
-        from: { latitude: number; longitude: number },
-        to: { latitude: number; longitude: number }
-      ) => {
-        const toRad = (d: number) => (d * Math.PI) / 180;
-        const toDeg = (d: number) => (d * 180) / Math.PI;
-        const lat1 = toRad(from.latitude);
-        const lat2 = toRad(to.latitude);
-        const dLon = toRad(to.longitude - from.longitude);
-        const y = Math.sin(dLon) * Math.cos(lat2);
-        const x =
-          Math.cos(lat1) * Math.sin(lat2) -
-          Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-        const brng = (toDeg(Math.atan2(y, x)) + 360) % 360;
-        return brng;
-      };
-
       if (currentNavState.nextStep && currentNavState.isNavigating) {
         const nextStepLocation = {
           latitude: currentNavState.nextStep.coordinates[1], 
@@ -1186,25 +1077,7 @@ function MapContent() {
     gpxStartPoint?.longitude,
   ]);
 
-  const getDistanceBetweenPoints = (
-    lat1: number,
-    lon1: number,
-    lat2: number,
-    lon2: number
-  ): number => {
-    const R = 6371000;
-    const φ1 = (lat1 * Math.PI) / 180;
-    const φ2 = (lat2 * Math.PI) / 180;
-    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-
-    const a =
-      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    return R * c;
-  };
+  
 
   const handleSelectLocation = async (result: any) => {
     const wasFollowing = disableFollowModeTemporarily();
@@ -2411,72 +2284,17 @@ function MapContent() {
 
   return (
     <View style={styles.container}>
-      <Modal
+      <LocationTimeoutModal
         visible={showLocationTimeoutModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowLocationTimeoutModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <MaterialIcons name="location-off" size={32} color="#FF9500" />
-              <Text style={styles.modalTitle}>Localisation non trouvée</Text>
-            </View>
-            <Text style={styles.modalDescription}>
-              Impossible de récupérer votre position après 10 secondes. Vérifiez
-              les autorisations ou réessayez.
-            </Text>
-            <View style={styles.modalButtonsVertical}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonPrimary]}
-                onPress={handleRetryLocation}
-              >
-                <MaterialIcons name="refresh" size={20} color="#FFF" />
-                <Text style={styles.modalButtonTextPrimary}>Réessayer</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonSecondary]}
-                onPress={handleContinueWithoutLocation}
-              >
-                <MaterialIcons name="block" size={20} color="#FF3B30" />
-                <Text style={styles.modalButtonTextSecondary}>
-                  Continuer sans localisation
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-      <Modal
+        onRetry={handleRetryLocation}
+        onContinue={handleContinueWithoutLocation}
+        styles={styles}
+      />
+      <LocationErrorModal
         visible={showLocationErrorModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowLocationErrorModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <MaterialIcons name="location-off" size={32} color="#FF3B30" />
-              <Text style={styles.modalTitle}>Problème de localisation</Text>
-            </View>
-            <Text style={styles.modalDescription}>
-              Impossible de récupérer votre position actuelle. Vérifiez que les
-              services de localisation sont activés et que l'application a
-              l'autorisation d'accéder à la localisation.
-            </Text>
-            <View style={styles.modalButtonsVertical}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonPrimary]}
-                onPress={() => setShowLocationErrorModal(false)}
-              >
-                <MaterialIcons name="close" size={20} color="#FFF" />
-                <Text style={styles.modalButtonTextPrimary}>Fermer</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setShowLocationErrorModal(false)}
+        styles={styles}
+      />
 
       <ResumeTripModal
         visible={resumeModalVisible}
@@ -3228,189 +3046,3 @@ function MapContent() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    height: "100%",
-  },
-  multiStepButton: {
-    position: "absolute",
-    top: 100,
-    right: 16,
-    backgroundColor: "#4CAF50",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    zIndex: 1000,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  multiStepButtonText: {
-    color: "#FFF",
-    fontWeight: "bold",
-    marginLeft: 4,
-    fontSize: 12,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  modalContent: {
-    backgroundColor: "#FFF",
-    borderRadius: 12,
-    padding: 24,
-    alignItems: "center",
-    maxWidth: 340,
-    width: "100%",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  modalIcon: {
-    marginBottom: 16,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 12,
-    textAlign: "center",
-  },
-  modalText: {
-    fontSize: 16,
-    color: "#666",
-    textAlign: "center",
-    lineHeight: 22,
-    marginBottom: 24,
-  },
-  modalButtons: {
-    flexDirection: "row",
-    gap: 12,
-    width: "100%",
-  },
-  modalButtonsVertical: {
-    flexDirection: "column",
-    gap: 12,
-    width: "100%",
-  },
-  modalButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    minHeight: 48,
-    width: "100%",
-    gap: 8,
-  },
-  modalButtonHorizontal: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    minHeight: 48,
-    gap: 8,
-  },
-  modalButtonPrimary: {
-    backgroundColor: "#007AFF",
-  },
-  modalButtonSecondary: {
-    backgroundColor: "#F2F2F7",
-    borderWidth: 1,
-    borderColor: "#E5E5EA",
-  },
-  modalButtonTextPrimary: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-    fontSize: 16,
-    textAlign: "center",
-  },
-  modalButtonTextSecondary: {
-    color: "#007AFF",
-    fontWeight: "600",
-    fontSize: 16,
-    textAlign: "center",
-  },
-  modalContainer: {
-    backgroundColor: "#FFF",
-    borderRadius: 12,
-    padding: 24,
-    alignItems: "center",
-    maxWidth: 360,
-    width: "100%",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-    gap: 12,
-  },
-  modalDescription: {
-    fontSize: 16,
-    color: "#666",
-    textAlign: "center",
-    lineHeight: 22,
-    marginBottom: 24,
-  },
-  routingErrorNotification: {
-    position: "absolute",
-    top: 60,
-    left: 16,
-    right: 16,
-    zIndex: 10000,
-    alignItems: "center",
-  },
-  routingErrorContainer: {
-    backgroundColor: "#FFEBEE",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    maxWidth: "90%",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  routingErrorText: {
-    fontSize: 14,
-    color: "#D32F2F",
-    fontWeight: "500",
-    flex: 1,
-  },
-});

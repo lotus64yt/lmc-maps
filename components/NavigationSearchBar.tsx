@@ -246,9 +246,7 @@ export default function NavigationGuidance({
           setLoadedRouteData(routeData);
           onRouteReady?.();
         } catch (e) {
-            "Erreur lors du démarrage de la navigation depuis routeData",
-            e
-          );
+          console.error("Erreur lors du démarrage de la navigation depuis routeData", e);
         }
         return;
       }
