@@ -1,4 +1,3 @@
-// Very small GPX parser: extracts waypoints and track points (lat/lon)
 export interface GPXPoint {
   latitude: number;
   longitude: number;
@@ -19,7 +18,6 @@ export function parseGPX(gpxText: string): { waypoints: GPXPoint[]; track: GPXPo
     return { waypoints: wpts, track: trkpts };
   }
 
-  // Waypoints (<wpt lat="" lon=""><name>..</name></wpt>)
   const wptNode = (gpx as any).wpt;
   const wptArr = wptNode ? (Array.isArray(wptNode) ? wptNode : [wptNode]) : [];
   for (const n of wptArr) {
@@ -34,7 +32,6 @@ export function parseGPX(gpxText: string): { waypoints: GPXPoint[]; track: GPXPo
     }
   }
 
-  // Track points (<trk><trkseg><trkpt lat lon /></trkseg></trk>)
   const trkNode = (gpx as any).trk;
   const trkArr = trkNode ? (Array.isArray(trkNode) ? trkNode : [trkNode]) : [];
   for (const t of trkArr) {

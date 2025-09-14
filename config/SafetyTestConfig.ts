@@ -1,12 +1,3 @@
-/**
- * Configuration de Test pour le Système de Sécurité Routière
- * 
- * Ce fichier centralise toutes les variables temporelles du système de sécurité routière
- * pour faciliter les tests et éviter d'oublier de remettre les vraies valeurs en production.
- * 
- * IMPORTANT: Avant de déployer en production, s'assurer que IS_TEST_MODE = false
- */
-
 export class SafetyTestConfig {
   // ⚠️ MODE TEST - Mettre à false pour la production
   public static readonly IS_TEST_MODE = false;

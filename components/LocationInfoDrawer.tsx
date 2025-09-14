@@ -32,7 +32,6 @@ interface PlacePhoto {
   height: number;
 }
 
-// Utiliser le type du service au lieu de redéfinir
 type LocationInfo = NominatimReverseResult;
 
 interface LocationInfoDrawerProps {
@@ -64,10 +63,8 @@ export default function LocationInfoDrawer({
   const [showRouteAlert, setShowRouteAlert] = useState(false);
   const [showCopyModal, setShowCopyModal] = useState(false);
   const [isFavorite, setIsFavorite] = useState<boolean>(false);
-  // Vitesse et limite de vitesse
   const [currentSpeed, setCurrentSpeed] = useState<number | null>(null);
   const [speedLimit, setSpeedLimit] = useState<string | null>(null);
-  // Met à jour la vitesse en temps réel
   useEffect(() => {
     let sub: Location.LocationSubscription | null = null;
     if (visible) {
@@ -77,7 +74,7 @@ export default function LocationInfoDrawer({
           sub = await Location.watchPositionAsync(
             { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 1, timeInterval: 1000 },
             (loc) => {
-              setCurrentSpeed(loc.coords.speed != null ? Math.max(0, loc.coords.speed * 3.6) : null); // m/s -> km/h
+              setCurrentSpeed(loc.coords.speed != null ? Math.max(0, loc.coords.speed * 3.6) : null);
             }
           );
         }
@@ -86,7 +83,6 @@ export default function LocationInfoDrawer({
     return () => { sub?.remove(); };
   }, [visible]);
 
-  // Met à jour la limite de vitesse via Overpass API
   useEffect(() => {
     if (visible && coordinate) {
       SpeedLimitService.getSpeedLimit(coordinate.latitude, coordinate.longitude)
@@ -99,18 +95,15 @@ export default function LocationInfoDrawer({
   const lastRequestTime = useRef<number>(0);
   const ignorePanResponderRef = useRef(false);
 
-  // Fonction pour récupérer des photos via l'API Unsplash
   const fetchPlacePhotos = async (placeName: string, location: Coordinate) => {
     setPhotosLoading(true);
     try {
-      // Nettoyer le nom du lieu pour la recherche
       const cleanPlaceName = placeName
-        .replace(/,.*$/, '') // Enlever tout après la première virgule
-        .replace(/\d+/g, '') // Enlever les numéros
-        .replace(/[^\w\s]/g, '') // Enlever la ponctuation
+        .replace(/,.*$/, '')
+        .replace(/\d+/g, '')
+        .replace(/[^\w\s]/g, '')
         .trim();
 
-      // API Unsplash public
       const searchQueries = [
         cleanPlaceName,
         `${cleanPlaceName} architecture`,
@@ -146,7 +139,6 @@ continue;
         }
       }
 
-      // Fallback Wikipedia/Wikimedia
       if (photos.length === 0) {
         try {
           const wikiResponse = await fetch(
@@ -173,13 +165,11 @@ continue;
       }
 
     } catch (err) {
-      console.error('Error fetching place photos:', err);
     } finally {
       setPhotosLoading(false);
     }
   };
 
-  // Fetch location info from Nominatim API
   const fetchLocationInfo = async (coord: Coordinate) => {
     setLoading(true);
     setError(null);
@@ -196,23 +186,20 @@ continue;
       if (result && result.display_name) {
         setLocationInfo(result);
         
-        // Récupérer des photos pour ce lieu
         const placeName = result.display_name.split(',')[0];
         await fetchPlacePhotos(placeName, coord);
       } else {
         setError("Aucune information disponible pour cette location");
       }
     } catch (err) {
-      console.error('Error fetching location info:', err);
       setError("Erreur lors de la récupération des informations");
     } finally {
       setLoading(false);
     }
   };
 
-  // Gestion du bouton itinéraire
   const handleStartRoutePress = () => {
-    Vibration.vibrate(50); // Vibration légère pour feedback
+    Vibration.vibrate(50);
     if (!coordinate) return;
     
     if (hasActiveRoute) {
@@ -222,26 +209,22 @@ continue;
     }
   };
 
-  // Confirmer l'abandon de la route actuelle
   const handleConfirmNewRoute = () => {
-    Vibration.vibrate(100); // Vibration plus forte pour confirmation
+    Vibration.vibrate(100);
     if (coordinate) {
       setShowRouteAlert(false);
       onStartRoute(coordinate);
     }
   };
 
-  // Annuler l'alerte
   const handleCancelNewRoute = () => {
-    Vibration.vibrate(50); // Vibration légère pour annulation
+    Vibration.vibrate(50);
     setShowRouteAlert(false);
   };
 
-  // Fonction pour fermer avec vibration
   const handleCloseWithVibration = () => {
     Vibration.vibrate(50);
     
-    // Masquer le point sur la carte
     if (onShowLocationPoint) {
       onShowLocationPoint(false);
     }
@@ -249,7 +232,6 @@ continue;
     onClose();
   };
 
-  // Fonctions de conversion de coordonnées
   const formatCoordinatesDD = (lat: number, lon: number): string => {
     return `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
   };
@@ -287,7 +269,6 @@ continue;
     return `${formatDMM(lat, true)} ${formatDMM(lon, false)}`;
   };
 
-  // Fonction pour copier les coordonnées
   const handleCopyCoordinates = (format: 'DD' | 'DMS' | 'DMM') => {
     if (!coordinate) return;
     
@@ -310,35 +291,29 @@ continue;
     Vibration.vibrate(50);
     setShowCopyModal(false);
     
-    // Vous pouvez ajouter un toast ici si vous voulez confirmer la copie
   };
 
-  // Fetch data when coordinate changes
   useEffect(() => {
     if (coordinate) {
       fetchLocationInfo(coordinate);
-      // check favorite
       (async () => {
         const id = `loc_${coordinate.latitude.toFixed(6)}_${coordinate.longitude.toFixed(6)}`;
         const fav = await FavoritesService.isFavorite(id);
         setIsFavorite(fav);
       })();
       
-      // Afficher le point sur la carte
       if (onShowLocationPoint) {
         onShowLocationPoint(true);
       }
     }
   }, [coordinate]);
 
-  // Gestion de l'affichage du point quand le drawer devient visible/invisible
   useEffect(() => {
     if (onShowLocationPoint) {
       onShowLocationPoint(visible && !!coordinate);
     }
   }, [visible, coordinate]);
 
-  // Animation logic
   useEffect(() => {
     if (visible) {
       Animated.spring(translateY, {
@@ -358,7 +333,6 @@ continue;
   const panResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => false,
     onMoveShouldSetPanResponder: (evt, gestureState) => {
-      // If inner content (ScrollView) signaled a touch, let it handle the gesture
       if (ignorePanResponderRef.current) return false;
       return Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
     },
@@ -371,7 +345,6 @@ continue;
     onPanResponderRelease: (evt, gestureState) => {
       const threshold = DRAWER_HEIGHT / 3;
       if (gestureState.dy > threshold) {
-        // Masquer le point sur la carte avant de fermer
         if (onShowLocationPoint) {
           onShowLocationPoint(false);
         }
@@ -387,12 +360,11 @@ continue;
   });
 
   const getLocationIcon = (osmType?: string) => {
-    // Utiliser osm_type au lieu de type/category car c'est ce qui est disponible dans NominatimReverseResult
     switch (osmType) {
       case 'node':
         return 'place';  
       case 'way':
-        return 'route'; // Changé de 'road' vers 'route'
+        return 'route';
       case 'relation':
         return 'location-city';
       default:
@@ -401,10 +373,8 @@ continue;
   };
 
   const getLocationTitle = (locationInfo: LocationInfo): string => {
-    // Extraire un titre intelligent depuis display_name
     const parts = locationInfo.display_name.split(',');
     if (parts.length > 0) {
-      // Prendre la première partie comme titre
       return parts[0].trim();
     }
     return 'Lieu';
@@ -449,7 +419,6 @@ continue;
       <ScrollView
         style={styles.content}
         showsVerticalScrollIndicator={false}
-        // Let the ScrollView handle touches so inner scrolling works
         onStartShouldSetResponder={() => {
           ignorePanResponderRef.current = true;
           return false;
@@ -459,7 +428,6 @@ continue;
           return false;
         }}
         onResponderRelease={() => {
-          // restore pan responder after inner interaction ends
           setTimeout(() => {
             ignorePanResponderRef.current = false;
           }, 50);
@@ -479,7 +447,7 @@ continue;
           </View>
         )}
 
-        {/* Affichage compteur de vitesse en mode navigation */}
+        {}
         {visible && currentSpeed !== null && (
           <View style={styles.speedContainer}>
             <Icon name="speed" size={22} color="#007AFF" style={{marginRight: 6}} />
@@ -513,7 +481,7 @@ continue;
               {locationInfo.display_name}
             </Text>
 
-            {/* Photos du lieu */}
+            {}
             {photos.length > 0 && (
               <View style={styles.photosContainer}>
                 <Text style={styles.photosTitle}>Photos du lieu</Text>
@@ -563,7 +531,7 @@ continue;
               </View>
             )}
 
-            {/* Bouton pour lancer l'itinéraire */}
+            {}
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
               <TouchableOpacity 
                 style={[styles.routeButton, { flex: 1 }]}
@@ -597,7 +565,7 @@ continue;
         )}
       </ScrollView>
 
-      {/* Modal pour choisir le format de copie des coordonnées */}
+      {}
       {showCopyModal && (
         <View style={styles.alertOverlay}>
           <View style={styles.copyModalContainer}>
@@ -658,7 +626,7 @@ continue;
         </View>
       )}
 
-      {/* Alerte personnalisée pour confirmer l'abandon de route */}
+      {}
       {showRouteAlert && (
         <View style={styles.alertOverlay}>
           <View style={styles.alertContainer}>
@@ -859,7 +827,6 @@ const styles = StyleSheet.create({
     color: '#666',
     textTransform: 'capitalize',
   },
-  // Styles pour le bouton d'itinéraire
   routeButton: {
     backgroundColor: '#007AFF',
     flexDirection: 'row',
@@ -876,7 +843,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 8,
   },
-  // Styles pour l'alerte personnalisée
   alertOverlay: {
     position: 'absolute',
     top: 0,
@@ -942,7 +908,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  // Styles pour les photos
   photosContainer: {
     marginBottom: 16,
   },
@@ -980,7 +945,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
   },
-  // Styles pour le modal de copie de coordonnées
   copyModalContainer: {
     backgroundColor: 'white',
     borderRadius: 16,
@@ -1045,3 +1009,4 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 });
+

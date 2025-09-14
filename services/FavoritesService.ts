@@ -19,7 +19,6 @@ export class FavoritesService {
       if (!raw) return [];
       return JSON.parse(raw) as FavoriteItem[];
     } catch (e) {
-      console.error('FavoritesService.listFavorites error', e);
       return [];
     }
   }
@@ -28,7 +27,6 @@ export class FavoritesService {
     try {
       await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(items));
     } catch (e) {
-      console.error('FavoritesService.saveFavorites error', e);
     }
   }
 
@@ -61,3 +59,4 @@ export class FavoritesService {
     }
   }
 }
+

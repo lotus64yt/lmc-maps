@@ -22,31 +22,26 @@ export class FallbackNavigationNotificationService {
   private static isNavigationActive = false;
   private static lastNotificationTime = 0;
 
-  // Démarrer les notifications de navigation
   static async startNavigationNotifications(): Promise<void> {
     this.isNavigationActive = true;
   }
 
-  // Arrêter les notifications de navigation
   static async stopNavigationNotifications(): Promise<void> {
     this.isNavigationActive = false;
   }
 
-  // Afficher une alerte de navigation
   static async showNavigationNotification(
     currentStep: NavigationStep,
     progress: NavigationProgress
   ): Promise<void> {
     if (!this.isNavigationActive) return;
 
-    // Limiter les alertes pour éviter le spam (une toutes les 30 secondes max)
     const now = Date.now();
     if (now - this.lastNotificationTime < 30000) {
       return;
     }
     this.lastNotificationTime = now;
 
-    // Formater la distance
     const formatDistance = (meters: number): string => {
       if (meters < 1000) {
         return `${Math.round(meters)}m`;
@@ -55,7 +50,6 @@ export class FallbackNavigationNotificationService {
       }
     };
 
-    // Formater le temps
     const formatTime = (seconds: number): string => {
       const minutes = Math.floor(seconds / 60);
       if (minutes < 60) {
@@ -75,13 +69,11 @@ export class FallbackNavigationNotificationService {
     message += `\n\nRestant: ${formatDistance(progress.remainingDistance)} • ${formatTime(progress.remainingTime)}`;
     message += `\nProgression: ${progress.progressPercentage.toFixed(0)}%`;
 
-    // Vibration pour attirer l'attention
     Vibration.vibrate([100, 50, 100]);
 
     Alert.alert(title, message, [{ text: 'OK', style: 'default' }]);
   }
 
-  // Afficher une alerte d'arrivée
   static async showArrivalNotification(destinationName: string): Promise<void> {
     if (!this.isNavigationActive) return;
 
@@ -93,24 +85,20 @@ export class FallbackNavigationNotificationService {
       [{ text: 'OK', style: 'default' }]
     );
 
-    // Arrêter les notifications après l'arrivée
     setTimeout(() => {
       this.stopNavigationNotifications();
     }, 1000);
   }
 
-  // Vérifier si les notifications sont actives
   static isActive(): boolean {
     return this.isNavigationActive;
   }
 
-  // Demander les permissions (pas nécessaire pour les alertes)
   static async requestPermissions(): Promise<boolean> {
     return true;
   }
 
-  // Nettoyer (pas nécessaire pour les alertes)
   static async clearAllNotifications(): Promise<void> {
-    // Rien à faire pour les alertes
   }
 }
+

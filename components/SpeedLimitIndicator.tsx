@@ -14,10 +14,8 @@ export default function SpeedLimitIndicator({ visible, currentLocation }: SpeedL
   const [speedLimit, setSpeedLimit] = useState<string | null>(null);
   const [isOverLimit, setIsOverLimit] = useState(false);
   
-  // Animation pour le clignotement
   const blinkAnim = useRef(new Animated.Value(1)).current;
 
-  // Surveiller la vitesse en temps réel
   useEffect(() => {
     let subscription: Location.LocationSubscription | null = null;
     
@@ -33,7 +31,7 @@ export default function SpeedLimitIndicator({ visible, currentLocation }: SpeedL
             },
             (location) => {
               if (location.coords.speed !== null) {
-                const speedKmh = Math.max(0, location.coords.speed * 3.6); // m/s -> km/h
+                const speedKmh = Math.max(0, location.coords.speed * 3.6);
                 setCurrentSpeed(speedKmh);
               }
             }
@@ -47,7 +45,6 @@ export default function SpeedLimitIndicator({ visible, currentLocation }: SpeedL
     };
   }, [visible]);
 
-  // Récupérer la limite de vitesse quand la position change
   useEffect(() => {
     if (visible && currentLocation) {
       SpeedLimitService.getSpeedLimit(currentLocation.latitude, currentLocation.longitude)
@@ -56,12 +53,11 @@ export default function SpeedLimitIndicator({ visible, currentLocation }: SpeedL
     }
   }, [visible, currentLocation]);
 
-  // Vérifier si on dépasse la limite
   useEffect(() => {
     if (currentSpeed !== null && speedLimit) {
       const limit = parseInt(speedLimit);
       if (!isNaN(limit)) {
-        const isOver = currentSpeed > limit + 2; // Tolérance de 2 km/h
+        const isOver = currentSpeed > limit + 2;
         setIsOverLimit(isOver);
       } else {
         setIsOverLimit(false);
@@ -71,7 +67,6 @@ export default function SpeedLimitIndicator({ visible, currentLocation }: SpeedL
     }
   }, [currentSpeed, speedLimit]);
 
-  // Animation de clignotement quand on dépasse
   useEffect(() => {
     if (isOverLimit) {
       const blink = () => {
@@ -79,12 +74,12 @@ export default function SpeedLimitIndicator({ visible, currentLocation }: SpeedL
           Animated.timing(blinkAnim, { toValue: 0.3, duration: 300, useNativeDriver: true }),
           Animated.timing(blinkAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
         ]).start(() => {
-          if (isOverLimit) blink(); // Continue si toujours au-dessus
+          if (isOverLimit) blink();
         });
       };
       blink();
     } else {
-      blinkAnim.setValue(1); // Arrêter le clignotement
+      blinkAnim.setValue(1);
     }
   }, [isOverLimit, blinkAnim]);
 
@@ -94,7 +89,7 @@ export default function SpeedLimitIndicator({ visible, currentLocation }: SpeedL
 
   return (
     <View style={styles.container}>
-      {/* Affichage vitesse actuelle */}
+      {}
       <Animated.View style={[
         styles.speedContainer,
         isOverLimit && { opacity: blinkAnim }
@@ -108,7 +103,7 @@ export default function SpeedLimitIndicator({ visible, currentLocation }: SpeedL
         <Text style={styles.kmhLabel}>km/h</Text>
       </Animated.View>
 
-      {/* Limite de vitesse (toujours affichée si disponible) */}
+      {}
       {speedLimitNum && (
         <View style={styles.limitContainer}>
           <View style={styles.speedLimitSign}>
@@ -117,7 +112,7 @@ export default function SpeedLimitIndicator({ visible, currentLocation }: SpeedL
         </View>
       )}
 
-      {/* Panneau d'alerte (seulement si dépassement) */}
+      {}
       {isOverLimit && speedLimitNum && (
         <Animated.View style={[styles.warningPanel, { opacity: blinkAnim }]}>
           <Icon name="warning" size={16} color="#FF3B30" />
@@ -130,15 +125,15 @@ export default function SpeedLimitIndicator({ visible, currentLocation }: SpeedL
 
 const styles = StyleSheet.create({
   container: {
-    position: 'relative', // Position relative par rapport au parent NavigationGuidance
-    alignItems: 'flex-end', // Aligné à droite
+    position: 'relative',
+    alignItems: 'flex-end',
     paddingRight: 12,
-    paddingTop: 8, // Espacement avec le bandeau du dessus
+    paddingTop: 8,
   },
   speedContainer: {
     backgroundColor: 'white',
     borderRadius: 8,
-    borderTopLeftRadius: 8, // Redonner les arrondis du haut
+    borderTopLeftRadius: 8,
     borderTopRightRadius: 8, 
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -149,7 +144,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
     marginBottom: 6,
-    width: 80, // Largeur fixe
+    width: 80,
     flexDirection: 'row',
     justifyContent: 'center',
   },
@@ -211,3 +206,4 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
 });
+

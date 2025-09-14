@@ -1,8 +1,3 @@
-/**
- * Formate une durée en minutes vers un format lisible
- * @param minutes - Durée en minutes
- * @returns String formatée (ex: "2s 3j 2h 30min", "1j 2h 30min", "45min", "2h 15min")
- */
 export function formatDuration(minutes: number): string {
   if (minutes < 1) {
     return "< 1min";
@@ -44,7 +39,6 @@ export function formatDuration(minutes: number): string {
     return result;
   }
   
-  // Gestion des semaines
   const weeks = Math.floor(totalDays / 7);
   const remainingDays = Math.floor(totalDays % 7);
   const remainingHours = Math.floor(totalHours % 24);
@@ -67,11 +61,6 @@ export function formatDuration(minutes: number): string {
   return result;
 }
 
-/**
- * Parse une durée textuelle vers des minutes
- * @param durationText - Texte de durée (ex: "2s 3j", "1j 2h 30min", "45min")
- * @returns Nombre de minutes
- */
 export function parseDurationToMinutes(durationText: string): number {
   if (durationText.includes("< 1min")) {
     return 0.5;
@@ -79,25 +68,21 @@ export function parseDurationToMinutes(durationText: string): number {
   
   let totalMinutes = 0;
   
-  // Extraction des semaines
   const weekMatch = durationText.match(/(\d+)s/);
   if (weekMatch) {
     totalMinutes += parseInt(weekMatch[1]) * 7 * 24 * 60;
   }
   
-  // Extraction des jours
   const dayMatch = durationText.match(/(\d+)j/);
   if (dayMatch) {
     totalMinutes += parseInt(dayMatch[1]) * 24 * 60;
   }
   
-  // Extraction des heures
   const hourMatch = durationText.match(/(\d+)h/);
   if (hourMatch) {
     totalMinutes += parseInt(hourMatch[1]) * 60;
   }
   
-  // Extraction des minutes
   const minMatch = durationText.match(/(\d+)min/);
   if (minMatch) {
     totalMinutes += parseInt(minMatch[1]);
@@ -106,11 +91,6 @@ export function parseDurationToMinutes(durationText: string): number {
   return totalMinutes;
 }
 
-/**
- * Formate une distance en mètres vers un format lisible
- * @param meters - Distance en mètres
- * @returns String formatée (ex: "1.2km", "500m")
- */
 export function formatDistance(meters: number): string {
   if (meters < 1000) {
     return `${Math.round(meters)}m`;
@@ -124,11 +104,6 @@ export function formatDistance(meters: number): string {
   return `${Math.round(kilometers)}km`;
 }
 
-/**
- * Formate une durée en secondes vers un format lisible pour la navigation
- * @param seconds - Durée en secondes
- * @returns String formatée (ex: "2h 30min", "45min", "2min")
- */
 export function formatDurationFromSeconds(seconds: number): string {
   if (seconds < 60) {
     return `${Math.round(seconds)}s`;

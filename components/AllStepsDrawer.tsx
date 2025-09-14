@@ -24,12 +24,12 @@ interface AllStepsDrawerProps {
   totalDuration: number;
   remainingDistance: number;
   remainingDuration: number;
-  distanceToNextStep?: number; // Distance restante jusqu'à la prochaine étape
-  currentStepDistance?: number; // Distance totale de l'étape actuelle
+  distanceToNextStep?: number;
+  currentStepDistance?: number;
 }
 
 const { height: screenHeight } = Dimensions.get('window');
-const DRAWER_HEIGHT = screenHeight * 0.75; // 75% de l'écran
+const DRAWER_HEIGHT = screenHeight * 0.75;
 
 export default function AllStepsDrawer({
   visible,
@@ -46,7 +46,6 @@ export default function AllStepsDrawer({
 }: AllStepsDrawerProps) {
   const translateY = useRef(new Animated.Value(DRAWER_HEIGHT)).current;
 
-  // Animation logic
   useEffect(() => {
     if (visible) {
       Animated.spring(translateY, {
@@ -87,7 +86,6 @@ export default function AllStepsDrawer({
     },
   });
 
-  // Formater la distance
   const formatDistance = (meters: number): string => {
     if (meters < 1000) {
       return `${Math.round(meters)}m`;
@@ -96,7 +94,6 @@ export default function AllStepsDrawer({
     }
   };
 
-  // Formater le temps
   const formatTime = (seconds: number): string => {
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) {
@@ -108,7 +105,6 @@ export default function AllStepsDrawer({
     }
   };
 
-  // Obtenir l'icône Material pour chaque type de manœuvre
   const getManeuverIcon = (step: NavigationStep, stepIndex: number): string => {
     const instruction = NavigationInstructionService.generateInstructionFromStep(
       step,
@@ -135,7 +131,6 @@ export default function AllStepsDrawer({
     }
   };
 
-  // Calculer la progression de l'utilisateur sur l'étape actuelle
   const getUserProgressOnCurrentStep = (): number => {
     if (currentStepDistance <= 0 || distanceToNextStep < 0) return 0;
     const progressDistance = currentStepDistance - distanceToNextStep;
@@ -181,12 +176,12 @@ export default function AllStepsDrawer({
             )}
           </View>
           
-          {/* Indicateur de position utilisateur sur l'étape actuelle */}
+          {}
           {isCurrentStep && (
             <View 
               style={[
                 styles.userPositionIndicator,
-                { top: 24 + (getUserProgressOnCurrentStep() * 36) } // Position dynamique sur le connecteur
+                { top: 24 + (getUserProgressOnCurrentStep() * 36) }
               ]}
             >
               <Icon name="keyboard-arrow-down" size={20} color="#FF6B35" />
@@ -381,7 +376,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'flex-start',
     borderLeftWidth: 4,
-    borderLeftColor: '#E0E0E0', // Étape non atteinte - gris clair
+    borderLeftColor: '#E0E0E0',
     paddingLeft: 16,
     marginLeft: 4,
   },
@@ -390,24 +385,24 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'flex-start',
     borderLeftWidth: 4,
-    borderLeftColor: '#007AFF', // Étape actuelle - bleu
+    borderLeftColor: '#007AFF',
     paddingLeft: 16,
     marginLeft: 4,
   },
   completedStepItem: {
     opacity: 0.7,
-    borderLeftColor: '#34C759', // Étape terminée - vert
+    borderLeftColor: '#34C759',
   },
   futureStepItem: {
-    borderLeftColor: '#E0E0E0', // Étape future - gris plus clair
+    borderLeftColor: '#E0E0E0',
     opacity: 0.8,
   },
   stepIconContainer: {
     alignItems: 'center',
     marginRight: 16,
-    marginLeft: -4, // Compenser légèrement la bordure gauche
+    marginLeft: -4,
     width: 24,
-    position: 'relative', // Nécessaire pour positionner l'indicateur utilisateur
+    position: 'relative',
   },
   stepIconCircle: {
     width: 24,
@@ -500,7 +495,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   
-  // Styles pour les badges numériques des étapes
   stepNumberBadge: {
     position: 'absolute',
     top: -8,
@@ -532,16 +526,14 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   
-  // Style pour le connecteur de l'étape actuelle
   currentStepConnector: {
     backgroundColor: '#007AFF',
-    width: 3, // Légèrement plus épais pour l'étape actuelle
+    width: 3,
   },
 
-  // Style pour l'indicateur de position utilisateur
   userPositionIndicator: {
     position: 'absolute',
-    left: -8, // Centré sur le connecteur
+    left: -8,
     backgroundColor: 'white',
     borderRadius: 10,
     width: 20,
@@ -556,3 +548,4 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
 });
+

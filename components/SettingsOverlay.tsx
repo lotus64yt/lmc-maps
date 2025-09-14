@@ -13,20 +13,16 @@ export default function SettingsOverlay({ visible, onClose, onImportGpx }: Props
   const [showVersionInfo, setShowVersionInfo] = useState(false);
   const { labsMode, setLabsMode, labsUnlocked, unlockLabs, showDebugInfo, setShowDebugInfo } = useLabs();
 
-  // Labs toggles
   const [labsVerboseLogging, setLabsVerboseLogging] = useState(false);
   const [labsExperimentalRouting, setLabsExperimentalRouting] = useState(false);
   const [labsShowDebugOverlays, setLabsShowDebugOverlays] = useState(false);
-  // Page stack for navigation inside the overlay
   const [pageStack, setPageStack] = useState<Array<{ key: string; title: string; props?: any }>>([{ key: 'root', title: 'Paramètres' }]);
   const pushPage = (page: { key: string; title: string; props?: any }) => setPageStack((s) => [...s, page]);
   const popPage = () => setPageStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
   const currentPage = pageStack[pageStack.length - 1];
 
-  // labs UI state
   const tapCountRef = useRef(0);
   const lastTapRef = useRef<number | null>(null);
-  // simple animation for page transitions
   const anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -35,13 +31,10 @@ export default function SettingsOverlay({ visible, onClose, onImportGpx }: Props
       anim.setValue(0);
     };
   }, [currentPage.key]);
-  // Read app metadata from package/app.json (kept in sync by build)
   const appName = "LMC Maps DEV";
   const packageName = "com.lotus64.lmcmaps";
   let appVersion = "Unknown version";
   try {
-    // load version from app.json if present
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const appJson = require('../app.json');
     appVersion = appJson?.expo?.version ?? appVersion;
   } catch (_) {}
@@ -64,9 +57,9 @@ export default function SettingsOverlay({ visible, onClose, onImportGpx }: Props
         </View>
 
         <ScrollView style={styles.content}>
-          {/* root page content follows */}
+          {}
 
-          {/* Root categories */}
+          {}
           {currentPage.key === 'root' && (
             <View style={styles.centerBlock}>
               <TouchableOpacity
@@ -92,7 +85,7 @@ export default function SettingsOverlay({ visible, onClose, onImportGpx }: Props
 
               <View style={{ height: 12 }} />
 
-              {/* Labs entry - hidden unless unlocked */}
+              {}
               {labsUnlocked ? (
                 <TouchableOpacity style={styles.importRow} onPress={() => pushPage({ key: 'labs', title: 'Labs' })}>
                   <View style={styles.importText}>
@@ -105,7 +98,6 @@ export default function SettingsOverlay({ visible, onClose, onImportGpx }: Props
                 <TouchableOpacity
                   style={styles.importRow}
                   onPress={() => {
-                    // increment tap count and unlock if 7 taps within short interval
                     const now = Date.now();
                     if (lastTapRef.current && now - lastTapRef.current! > 1500) {
                       tapCountRef.current = 0;
@@ -128,7 +120,7 @@ export default function SettingsOverlay({ visible, onClose, onImportGpx }: Props
             </View>
           )}
 
-          {/* Display page */}
+          {}
           {currentPage.key === 'display' && (
             <View>
               <TouchableOpacity style={styles.sectionDivider} />
@@ -142,7 +134,7 @@ export default function SettingsOverlay({ visible, onClose, onImportGpx }: Props
             </View>
           )}
 
-          {/* GPX subpage */}
+          {}
           {currentPage.key === 'gpx' && (
             <View style={{ paddingTop: 12 }}>
               <TouchableOpacity
@@ -161,7 +153,7 @@ export default function SettingsOverlay({ visible, onClose, onImportGpx }: Props
             </View>
           )}
 
-          {/* Theme settings */}
+          {}
           {currentPage.key === 'theme' && (
             <View style={{ paddingTop: 12 }}>
               <View style={styles.optionRowSmall}>
@@ -174,7 +166,7 @@ export default function SettingsOverlay({ visible, onClose, onImportGpx }: Props
             </View>
           )}
 
-          {/* Labs page */}
+          {}
           {currentPage.key === 'labs' && (
             <View style={{ paddingTop: 12 }}>
               <View style={styles.optionRowSmall}>
@@ -211,7 +203,7 @@ export default function SettingsOverlay({ visible, onClose, onImportGpx }: Props
           </View>
         )}
 
-  {/* labs handled as part of page stack; no duplicate block here */}
+  {}
       </SafeAreaView>
     </Modal>
   );
@@ -278,3 +270,4 @@ const styles = StyleSheet.create({
   backButtonText: { color: '#007AFF', fontWeight: '600' },
   chevronRight: { fontSize: 18, color: '#c7c7cc' },
 });
+

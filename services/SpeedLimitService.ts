@@ -1,7 +1,5 @@
-// Service to fetch speed limit (maxspeed) from OpenStreetMap using Overpass API
 export class SpeedLimitService {
   static async getSpeedLimit(lat: number, lon: number): Promise<string | null> {
-    // Query for the nearest way with a maxspeed tag
     const query = `
       [out:json][timeout:10];
       way(around:30,${lat},${lon})[maxspeed];
@@ -21,7 +19,6 @@ export class SpeedLimitService {
       }
       return null;
     } catch (e) {
-      console.error('Error fetching speed limit:', e);
       return null;
     }
   }

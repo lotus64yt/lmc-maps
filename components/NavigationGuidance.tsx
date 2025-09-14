@@ -25,30 +25,24 @@ import SpeedLimitIndicator from "./SpeedLimitIndicator";
 interface NavigationGuidanceProps {
   visible: boolean;
   onStop: () => void;
-  onShowAllSteps?: () => void; // Callback to adjust map view when drawer opens
-  recenterMain?: any; // optional style or prop for custom recenter main layout
-  onAddNavigationStep?: () => void; // Nouveau callback pour ajouter une étape
-  isRecalculatingRoute?: boolean; // Nouvel état pour afficher le spinner de recalcul
-  showRecenterPrompt?: boolean; // Afficher le prompt de recentrage
-  onManualRecenter?: () => void; // Callback pour le recentrage manuel
-  currentLocation?: { latitude: number; longitude: number } | null; // Position actuelle pour le SpeedLimitIndicator
-  isOffRouteOverride?: boolean; // Optional external override to indicate off-route
-  // Nouvelle prop : demande de démarrage d'itinéraire (start/end/mode). Si fournie,
-  // le composant lancera le chargement de l'itinéraire et affichera un spinner
-  // jusqu'à ce que la navigation soit prête.
+  onShowAllSteps?: () => void;
+  recenterMain?: any;
+  onAddNavigationStep?: () => void;
+  isRecalculatingRoute?: boolean;
+  showRecenterPrompt?: boolean;
+  onManualRecenter?: () => void;
+  currentLocation?: { latitude: number; longitude: number } | null;
+  isOffRouteOverride?: boolean;
   routeRequest?: {
     start: { latitude: number; longitude: number };
     end: { latitude: number; longitude: number };
     mode: string;
   } | null;
-  // If the parent already fetched the route, pass it here to avoid re-fetching.
-  // Expected to be in the same shape RouteService / NavigationService.convertRouteToNavigationSteps accepts.
   routeData?: any | null;
-  // Structured navigation data with duration, distance, and steps
   navigationData?: {
     routeData: any;
-    totalDuration: number; // seconds
-    totalDistance: number; // meters
+    totalDuration: number;
+    totalDistance: number;
     steps: Array<{
       instruction: string;
       distance: number;
@@ -56,8 +50,8 @@ interface NavigationGuidanceProps {
       coordinates?: [number, number][];
     }>;
   } | null;
-  onRouteReady?: () => void; // callback quand la route est prête
-  onNewRouteCalculated?: (routeData: any) => void; // callback quand une nouvelle route est calculée
+  onRouteReady?: () => void;
+  onNewRouteCalculated?: (routeData: any) => void;
 }
 
 export default function NavigationGuidance({
@@ -80,47 +74,38 @@ export default function NavigationGuidance({
     NavigationService.getCurrentState()
   );
   const [isStepsDrawerVisible, setIsStepsDrawerVisible] = useState(false);
-  const [showMenu, setShowMenu] = useState(false); // État pour le menu
+  const [showMenu, setShowMenu] = useState(false);
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const [isLoadingRoute, setIsLoadingRoute] = useState<boolean>(false);
-  const [loadedRouteData, setLoadedRouteData] = useState<any>(null); // Store loaded route data
+  const [loadedRouteData, setLoadedRouteData] = useState<any>(null);
   const [recenterRemainingMs, setRecenterRemainingMs] = useState<number | null>(
     null
   );
   const progressAnim = React.useRef(new Animated.Value(0)).current;
   const recenterIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
-  const lastRecalculationRef = React.useRef<number>(0); // Timestamp du dernier recalcul
-  const [timeMode, setTimeMode] = useState<number>(0); // 0 = formatted, 1 = minutes, 2 = seconds
-  const [distanceMode, setDistanceMode] = useState<number>(0); // 0 = formatted, 1 = km, 2 = miles
+  const lastRecalculationRef = React.useRef<number>(0);
+  const [timeMode, setTimeMode] = useState<number>(0);
+  const [distanceMode, setDistanceMode] = useState<number>(0);
 
-  // Déclencher le recalcul automatiquement quand isRecalculatingRoute devient true
   useEffect(() => {
     if (isRecalculatingRoute && currentLocation) {
       const now = Date.now();
       
-      // Éviter les recalculs trop fréquents (minimum 5 secondes entre les recalculs)
       if (now - lastRecalculationRef.current < 5000) {
-        console.log('[RECALCUL] Recalcul ignoré - trop récent (moins de 5s)');
         return;
       }
       
-      console.log('[RECALCUL] isRecalculatingRoute = true détecté, lancement du recalcul automatique');
       lastRecalculationRef.current = now;
       setIsLoadingRoute(true);
       
-      // Lancer le processus de recalcul avec un petit délai pour éviter les conflits
       const performRecalculation = async () => {
         try {
-          // Petit délai pour laisser le temps aux états de se stabiliser
           await new Promise(resolve => setTimeout(resolve, 500));
           
-          console.log('[RECALCUL] Début du recalcul automatique depuis', currentLocation);
           
-          // Utiliser la destination actuelle du routeData
           let targetDestination = null;
           
           if (routeData) {
-            // Extraire la destination du routeData
             try {
               if (routeData.features && routeData.features[0]) {
                 const coords = routeData.features[0].geometry.coordinates;
@@ -136,19 +121,15 @@ export default function NavigationGuidance({
                 }
               }
             } catch (e) {
-              console.warn('[RECALCUL] Erreur extraction destination:', e);
             }
           }
           
           if (!targetDestination) {
-            console.warn('[RECALCUL] Impossible de déterminer la destination pour le recalcul');
             setIsLoadingRoute(false);
             return;
           }
           
-          console.log('[RECALCUL] Recalcul vers destination:', targetDestination);
           
-          // Fetch nouvelle route
           const fetchedRoute = await fetchParallelRouting(
             currentLocation,
             targetDestination,
@@ -156,10 +137,8 @@ export default function NavigationGuidance({
           );
           
           if (fetchedRoute.success && fetchedRoute.data) {
-            console.log('[RECALCUL] Nouvelle route recalculée avec succès');
             const navigationSteps = NavigationService.convertRouteToNavigationSteps(fetchedRoute.data);
             
-            // Fonction locale pour extraire les coordonnées plates
             const extractFlatCoords = (route: any) => {
               try {
                 if (route.features && route.features[0] && route.features[0].geometry && route.features[0].geometry.coordinates) {
@@ -169,7 +148,6 @@ export default function NavigationGuidance({
                   return (route.routes[0].geometry.coordinates as [number, number][]).map(c => [c[0], c[1]]).flat();
                 }
               } catch (e) {
-                // ignore
               }
               return null;
             };
@@ -180,10 +158,8 @@ export default function NavigationGuidance({
             onNewRouteCalculated?.(fetchedRoute.data);
             onRouteReady?.();
           } else {
-            console.warn('[RECALCUL] Échec du recalcul automatique');
           }
         } catch (e) {
-          console.warn('[RECALCUL] Erreur pendant le recalcul automatique:', e);
         } finally {
           setIsLoadingRoute(false);
         }
@@ -193,7 +169,6 @@ export default function NavigationGuidance({
     }
   }, [isRecalculatingRoute, currentLocation]);
 
-  // Responsive positioning for recenter button / bottom guidance
   const { width, height } = useWindowDimensions
     ? useWindowDimensions()
     : { width: 360, height: 800 };
@@ -204,7 +179,6 @@ export default function NavigationGuidance({
     Math.round(width * 0.12)
   );
 
-  // S'abonner aux changements d'état de navigation
   useEffect(() => {
     const lastKeyState = { current: null as null | string };
     const keyFromState = (s: NavigationState) =>
@@ -218,7 +192,6 @@ export default function NavigationGuidance({
           setNavigationState(state);
         }
       } catch (e) {
-        // If anything unexpected happens, fallback to setting state once
         setNavigationState(state);
       }
     };
@@ -232,9 +205,6 @@ export default function NavigationGuidance({
 
   const effectiveIsOffRoute = typeof isOffRouteOverride === 'boolean' ? isOffRouteOverride : navigationState.isOffRoute;
 
-  // When a routeRequest is provided, load the route here and show a spinner.
-  // If `routeData` is provided by the parent (already fetched), use it directly
-  // to start navigation and skip the network fetch/spinner.
   useEffect(() => {
     let mounted = true;
     const loadRoute = async () => {
@@ -244,21 +214,17 @@ export default function NavigationGuidance({
 
       const extractFlatCoords = (route: any): number[] | null => {
         try {
-          // OSRM-like: route.routes[0].geometry.coordinates -> [[lon, lat], ...]
           if (route.routes && route.routes[0] && route.routes[0].geometry && route.routes[0].geometry.coordinates) {
             return (route.routes[0].geometry.coordinates as [number, number][]).map(c => [c[0], c[1]]).flat();
           }
-          // ORS-like: route.features[0].geometry.coordinates -> [[lon, lat], ...]
           if (route.features && route.features[0] && route.features[0].geometry && route.features[0].geometry.coordinates) {
             return (route.features[0].geometry.coordinates as [number, number][]).map(c => [c[0], c[1]]).flat();
           }
         } catch (e) {
-          // ignore
         }
         return null;
       };
 
-      // Priority 1: Use structured navigationData if available
       if (navigationData) {
         try {
           const navigationSteps = NavigationService.convertRouteToNavigationSteps(navigationData.routeData);
@@ -267,12 +233,10 @@ export default function NavigationGuidance({
           setIsLoadingRoute(false);
           onRouteReady?.();
         } catch (e) {
-          console.warn("Erreur lors du démarrage de la navigation depuis navigationData", e);
         }
         return;
       }
 
-      // Priority 2: Use routeData if available
       if ((routeData as any) != null) {
         try {
           const navigationSteps =
@@ -282,15 +246,10 @@ export default function NavigationGuidance({
           setLoadedRouteData(routeData);
           onRouteReady?.();
         } catch (e) {
-          console.warn(
-            "Erreur lors du démarrage de la navigation depuis routeData",
-            e
-          );
         }
         return;
       }
 
-      // Priority 3: Use previously loaded route data if no new request
       if (!routeRequest && loadedRouteData) {
         setIsLoadingRoute(false);
         return;
@@ -300,7 +259,6 @@ export default function NavigationGuidance({
         return;
       }
 
-      console.log('[RECALCUL] NavigationGuidance starting route fetch for recalculation');
       setIsLoadingRoute(true);
       try {
         const { start, end, mode } = routeRequest;
@@ -316,25 +274,19 @@ export default function NavigationGuidance({
           "https://routing.openstreetmap.de",
         ];
         let fetchedRoute: any = null;
-        console.log('[RECALCUL] Trying hosts for route recalculation:', hosts);
         for (const host of hosts) {
           try {
-            console.log(`[RECALCUL] Attempting host: ${host}`);
             const url = `${host}/route/v1/${osrmMode}/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson&steps=true&alternatives=true`;
             const res = await fetch(url);
-            console.log(`[RECALCUL] Host ${host} response:`, res.status, res.ok);
             if (!res.ok) continue;
             const d = await res.json();
             if (d && d.routes && d.routes.length > 0) {
-              console.log(`[RECALCUL] Host ${host} returned route successfully`);
               fetchedRoute = d;
               break;
             } else {
-              console.log(`[RECALCUL] Host ${host} returned no routes`);
               continue;
             }
           } catch (e) {
-            console.warn(`[RECALCUL] Host ${host} fetch error:`, e);
             continue;
           }
         }
@@ -348,7 +300,6 @@ export default function NavigationGuidance({
                 process.env.ORS_API_KEY));
           if (ORS_KEY) {
             try {
-              console.log('[RECALCUL] Trying ORS fallback for recalculation');
               const profile =
                 osrmMode === "bike"
                   ? "cycling-regular"
@@ -359,39 +310,30 @@ export default function NavigationGuidance({
               const res = await fetch(url, {
                 headers: { Authorization: ORS_KEY },
               });
-              console.log('[RECALCUL] ORS response:', res.status, res.ok);
               if (res.ok) {
                 const d = await res.json();
                 if (d && d.features && d.features.length > 0) {
-                  console.log('[RECALCUL] ORS returned route successfully');
                   fetchedRoute = d;
                 } else {
-                  console.log('[RECALCUL] ORS returned no features');
                 }
               }
             } catch (e) {
-              console.warn("[RECALCUL] ORS fetch error:", e);
             }
           }
         }
 
         if (mounted && fetchedRoute) {
-          console.log('[RECALCUL] Starting navigation with fetched recalculated route');
           const navigationSteps = NavigationService.convertRouteToNavigationSteps(fetchedRoute);
           const flat = extractFlatCoords(fetchedRoute);
           NavigationService.startNavigation(navigationSteps, undefined, osrmMode, flat || undefined);
           setLoadedRouteData(fetchedRoute);
-          // Transmit the new route to parent for map display update
           onNewRouteCalculated?.(fetchedRoute);
           onRouteReady?.();
         } else if (mounted && !fetchedRoute) {
-          console.warn('[RECALCUL] Failed to fetch route for recalculation');
         }
       } catch (e) {
-        console.warn("[RECALCUL] Erreur lors du chargement de l'itinéraire de recalcul dans NavigationGuidance", e);
       } finally {
         if (mounted) {
-          console.log('[RECALCUL] NavigationGuidance route fetch finished, setIsLoadingRoute(false)');
           setIsLoadingRoute(false);
         }
       }
@@ -413,12 +355,11 @@ export default function NavigationGuidance({
 
 
   const handleStopNavigation = () => {
-    Vibration.vibrate(100); // Vibration plus longue pour arrêter la navigation
+    Vibration.vibrate(100);
     NavigationService.stopNavigation();
     onStop();
   };
 
-  // Helpers to display time/distance in different units when tapped
   const formatTimeByMode = (secondsRaw: number | undefined, mode: number) => {
     const seconds = typeof secondsRaw === 'number' ? secondsRaw : 0;
     switch (mode) {
@@ -449,7 +390,7 @@ export default function NavigationGuidance({
 
   const handleOpenStepsDrawer = () => {
     setIsStepsDrawerVisible(true);
-    onShowAllSteps?.(); // Notify parent to adjust map view
+    onShowAllSteps?.();
   };
 
   const handleCloseStepsDrawer = () => {
@@ -470,13 +411,11 @@ export default function NavigationGuidance({
     closeMenu(() => handleStopNavigation());
   };
 
-  // Animated menu control
-  const [menuVisible, setMenuVisible] = useState(false); // controls Modal visible
-  const menuAnim = React.useRef(new Animated.Value(0)).current; // 0..1
+  const [menuVisible, setMenuVisible] = useState(false);
+  const menuAnim = React.useRef(new Animated.Value(0)).current;
 
   const openMenu = () => {
     setMenuVisible(true);
-    // small delay to ensure modal is visible
     requestAnimationFrame(() => {
       Animated.spring(menuAnim, {
         toValue: 1,
@@ -489,7 +428,6 @@ export default function NavigationGuidance({
   };
 
   const closeMenu = (cb?: () => void) => {
-    // sequence: slight pop then exit
     Animated.sequence([
       Animated.timing(menuAnim, {
         toValue: 1.05,
@@ -515,7 +453,7 @@ export default function NavigationGuidance({
 
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-      {/* Barre de guidage en haut - Prochaine étape */}
+      {}
       <SafeAreaView>
         {isLoadingRoute ? (
           <View style={styles.loadingTopGuidance}>
@@ -555,7 +493,7 @@ export default function NavigationGuidance({
           </View>
         )}
 
-        {/* Barre de recalcul / off-route */}
+        {}
         {effectiveIsOffRoute ? (
           <View style={[styles.recalculatingBar, styles.offRouteBar]}>
             <ActivityIndicator size="small" color="#FF3B30" />
@@ -569,10 +507,9 @@ export default function NavigationGuidance({
         ) : null}
       </SafeAreaView>
 
-      {/* Barre de statut en bas - Informations globales ou prompt de recentrage */}
+      {}
       <View style={styles.bottomGuidance}>
         {showRecenterPrompt ? (
-          // Affichage du prompt de recentrage avec compte à rebours visuel
           <TouchableOpacity
             onPress={onManualRecenter}
             activeOpacity={0.8}
@@ -582,7 +519,6 @@ export default function NavigationGuidance({
               style={[
                 styles.recenterPromptContainer,
                 {
-                  // light blue progress background based on progressAnim
                   backgroundColor: progressAnim.interpolate({
                     inputRange: [0, 1],
                     outputRange: ["rgba(255,255,255,1)", "rgba(220,235,255,1)"],
@@ -595,7 +531,7 @@ export default function NavigationGuidance({
                 <Icon name="my-location" size={24} color="#007AFF" />
               </View>
 
-              {/* Countdown badge - only show last 3 seconds with numbers 3,2,1 */}
+              {}
               {recenterRemainingMs !== null && recenterRemainingMs <= 3000 && (
                 <View style={styles.countdownContainer} pointerEvents="none">
                   <Animated.View
@@ -619,7 +555,6 @@ export default function NavigationGuidance({
             </Animated.View>
           </TouchableOpacity>
         ) : (
-          // Affichage normal des statistiques
           <View style={styles.statsContainer}>
             <TouchableOpacity
               style={styles.statItem}
@@ -666,13 +601,13 @@ export default function NavigationGuidance({
         </TouchableOpacity>
       </View>
 
-      {/* Indicateur de limite de vitesse - en dessous du bandeau de navigation */}
+      {}
       <SpeedLimitIndicator
         visible={visible}
         currentLocation={currentLocation}
       />
 
-      {/* Menu contextuel */}
+      {}
       {!showRecenterPrompt && (
         <Modal
           visible={menuVisible}
@@ -733,7 +668,7 @@ export default function NavigationGuidance({
         </Modal>
       )}
 
-      {/* AllStepsDrawer */}
+      {}
       <AllStepsDrawer
         visible={isStepsDrawerVisible}
         onClose={handleCloseStepsDrawer}
@@ -769,7 +704,6 @@ const styles = StyleSheet.create({
     pointerEvents: "box-none",
   },
 
-  // Barre de guidage en haut
   topGuidance: {
     backgroundColor: "white",
     flexDirection: "row",
@@ -844,7 +778,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // Barre de statut en bas
   bottomGuidance: {
     position: "absolute",
     bottom: 0,
@@ -855,7 +788,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    paddingBottom: 34, // Pour l'encoche iPhone
+    paddingBottom: 34,
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
@@ -918,7 +851,7 @@ const styles = StyleSheet.create({
   menuOverlay: {
     flex: 1,
     justifyContent: "flex-end",
-    paddingBottom: 100, // Espacement au-dessus de la barre de navigation
+    paddingBottom: 100,
   },
   menuContainer: {
     backgroundColor: "white",
@@ -929,7 +862,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginHorizontal: 16,
     marginBottom: 16,
-    // shadow removed
   },
   menuItem: {
     flexDirection: "row",
@@ -938,7 +870,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   menuItemDanger: {
-    // Pas de style spécial, juste pour la différenciation
   },
   menuItemText: {
     fontSize: 16,
@@ -956,7 +887,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
   },
 
-  // Styles pour la barre de recalcul
   recalculatingBar: {
     backgroundColor: "#F0F0F0",
     flexDirection: "row",
@@ -1016,7 +946,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // Styles pour le prompt de recentrage
   recenterMain: {
     flexDirection: "row",
     alignItems: "center",
@@ -1043,3 +972,4 @@ const styles = StyleSheet.create({
     width: "50%",
   },
 });
+

@@ -8,7 +8,7 @@ const LABS_SHOW_DEBUG_KEY = 'labs_show_debug_info';
 interface LabsContextType {
   labsMode: boolean;
   setLabsMode: (v: boolean) => Promise<void>;
-  labsUnlocked: boolean; // true if labs was ever enabled at least once
+  labsUnlocked: boolean;
   unlockLabs: () => Promise<void>;
   showDebugInfo: boolean;
   setShowDebugInfo: (v: boolean) => Promise<void>;
@@ -31,7 +31,6 @@ export const LabsProvider = ({ children }: { children: ReactNode }) => {
         if (unlocked === 'true') setLabsUnlocked(true);
   if (showDebug === 'true') setShowDebugInfoState(true);
       } catch (e) {
-        // ignore
       }
     })();
   }, []);
@@ -44,7 +43,6 @@ export const LabsProvider = ({ children }: { children: ReactNode }) => {
         setLabsUnlocked(true);
       }
     } catch (e) {
-      // ignore
     }
     setLabsModeState(v);
   };
@@ -54,7 +52,6 @@ export const LabsProvider = ({ children }: { children: ReactNode }) => {
       await AsyncStorage.setItem(LABS_UNLOCKED_KEY, 'true');
       setLabsUnlocked(true);
     } catch (e) {
-      // ignore
     }
   };
 
@@ -62,7 +59,6 @@ export const LabsProvider = ({ children }: { children: ReactNode }) => {
     try {
       await AsyncStorage.setItem(LABS_SHOW_DEBUG_KEY, v ? 'true' : 'false');
     } catch (e) {
-      // ignore
     }
     setShowDebugInfoState(v);
   };
@@ -81,3 +77,4 @@ export function useLabs() {
 }
 
 export default LabsContext;
+

@@ -64,22 +64,19 @@ export default function ArrivalDrawer({
   const [loading, setLoading] = useState(false);
   const [photosLoading, setPhotosLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dataLoaded, setDataLoaded] = useState(false); // Pour éviter les rechargements
+  const [dataLoaded, setDataLoaded] = useState(false);
   const [isInParis, setIsInParis] = useState(false);
   
   const translateY = useRef(new Animated.Value(DRAWER_HEIGHT)).current;
 
-  // Fonction pour récupérer des photos via l'API Unsplash (gratuite, sans clé pour recherche simple)
   const fetchPlacePhotos = async (placeName: string, location: Coordinate) => {
     setPhotosLoading(true);
     try {
-      // Nettoyer le nom du lieu pour la recherche
       const cleanPlaceName = placeName
-        .replace(/,.*$/, '') // Enlever tout après la première virgule
-        .replace(/\d+/g, '') // Enlever les numéros
-        .replace(/[^\w\s]/g, '') // Enlever la ponctuation
+        .replace(/,.*$/, '')
+        .replace(/\d+/g, '')
+        .replace(/[^\w\s]/g, '')
         .trim();
-// API Unsplash public (sans clé nécessaire pour les recherches basiques)
       const searchQueries = [
         cleanPlaceName,
         `${cleanPlaceName} architecture`,
@@ -119,7 +116,6 @@ continue;
         }
       }
 
-      // Si Unsplash ne fonctionne pas, essayer Wikipedia/Wikimedia
       if (!foundPhotos) {
         try {
           const wikiResponse = await fetch(
@@ -146,20 +142,17 @@ continue;
       }
 
     } catch (err) {
-      console.error('Error fetching place photos:', err);
     } finally {
       setPhotosLoading(false);
     }
   };
 
-  // Récupérer les informations détaillées du lieu
   const fetchDestinationInfo = async (coord: Coordinate) => {
     setLoading(true);
     setError(null);
     setLocationInfo(null);
     setPhotos([]);
 
-    // Mettre à jour le flag isInParis (utilisé uniquement pour informations complémentaires)
     try {
       const inParis = ParkingService.isInParis(coord.latitude, coord.longitude);
       setIsInParis(inParis);
@@ -176,29 +169,25 @@ continue;
       
       if (result && result.display_name) {
         setLocationInfo(result);
-        setDataLoaded(true); // Marquer les données comme chargées
+        setDataLoaded(true);
         
-        // Récupérer des photos pour ce lieu
         const placeName = destination?.name || result.display_name.split(',')[0];
         await fetchPlacePhotos(placeName, coord);
       } else {
         setError("Aucune information disponible pour cette destination");
-        setDataLoaded(true); // Marquer comme chargé même en cas d'erreur
+        setDataLoaded(true);
       }
     } catch (err) {
-      console.error('Error fetching destination info:', err);
       setError("Erreur lors de la récupération des informations");
-      setDataLoaded(true); // Marquer comme chargé même en cas d'erreur
+      setDataLoaded(true);
     } finally {
       setLoading(false);
     }
   };
 
-  // Fonction pour fermer avec vibration
   const handleCloseWithVibration = () => {
-    Vibration.vibrate([100, 50, 100]); // Pattern de vibration pour célébrer l'arrivée
+    Vibration.vibrate([100, 50, 100]);
     
-    // Réactiver le suivi de l'utilisateur
     if (onEnableFollowUser) {
       onEnableFollowUser();
     }
@@ -206,7 +195,6 @@ continue;
     onClose();
   };
 
-  // Fonction pour naviguer à nouveau
   const handleNavigateAgain = () => {
     Vibration.vibrate(50);
     if (onNavigateAgain) {
@@ -214,12 +202,10 @@ continue;
     }
   };
 
-  // Fonction pour rechercher un parking
   const handleFindParking = () => {
     Vibration.vibrate(50);
     if (!onFindParking) return;
 
-    // Prefer explicit destination coordinate, otherwise try reverse geocode result
     let coord: Coordinate | null = null;
     if (destination && destination.coordinate) {
       coord = destination.coordinate;
@@ -234,14 +220,12 @@ continue;
     }
   };
 
-  // Fetch data when destination changes (only once per destination)
   useEffect(() => {
     if (visible && destination?.coordinate && !dataLoaded) {
       fetchDestinationInfo(destination.coordinate);
     }
   }, [visible, destination?.coordinate?.latitude, destination?.coordinate?.longitude, dataLoaded]);
 
-  // S'assurer que isInParis est correct même si fetchDestinationInfo n'est pas appelé
   useEffect(() => {
     if (visible && destination?.coordinate && dataLoaded) {
       try {
@@ -255,55 +239,45 @@ continue;
     }
   }, [visible, destination?.coordinate, dataLoaded]);
 
-  // Reset data when destination changes
   useEffect(() => {
     if (destination?.coordinate?.latitude && destination?.coordinate?.longitude) {
       const newLatLng = `${destination.coordinate.latitude},${destination.coordinate.longitude}`;
       const currentLatLng = locationInfo ? `${locationInfo.lat || 0},${locationInfo.lon || 0}` : '';
       
-      // Réinitialiser seulement si c'est vraiment une nouvelle destination
-      // Comparer avec une tolérance pour éviter les faux positifs dus aux arrondissements
       const latDiff = Math.abs(destination.coordinate.latitude - parseFloat(locationInfo?.lat || '0'));
       const lonDiff = Math.abs(destination.coordinate.longitude - parseFloat(locationInfo?.lon || '0'));
-      const tolerance = 0.0001; // ~10 mètres de tolérance
+      const tolerance = 0.0001;
       
       if (latDiff > tolerance || lonDiff > tolerance) {
-        // // debugLog.info(`Old: ${currentLatLng}, New: ${newLatLng}`);
          setDataLoaded(false);
          setLocationInfo(null);
          setPhotos([]);
          setError(null);
-         setIsInParis(false); // Seulement réinitialiser si c'est vraiment une nouvelle destination
+         setIsInParis(false);
       } else {
 }
     }
   }, [destination?.coordinate?.latitude, destination?.coordinate?.longitude]);
 
-  // Debug: surveiller les changements d'état isInParis
   useEffect(() => {
 if (destination?.coordinate) {
       const testInParis = ParkingService.isInParis(destination.coordinate.latitude, destination.coordinate.longitude);
 }
   }, [isInParis]);
 
-  // Animation logic et gestion du suivi utilisateur
   const hasOpenedRef = useRef(false);
   useEffect(() => {
-    // Only run open-side effects when transitioning from closed -> open
     if (visible && !hasOpenedRef.current) {
       hasOpenedRef.current = true;
 
-      // Effacer les points d'étapes quand on arrive à destination
       if (onClearSteps) {
         onClearSteps();
       }
 
-      // Désactiver le suivi de l'utilisateur quand le drawer s'ouvre
       if (onDisableFollowUser) {
         onDisableFollowUser();
       }
 
-      // Ajuster la caméra pour voir l'utilisateur au-dessus du drawer (best-effort)
       if (destination?.coordinate && onAdjustCamera) {
         const adjustedCoordinate = {
           latitude: destination.coordinate.latitude + 0.001,
@@ -320,7 +294,6 @@ if (destination?.coordinate) {
       }).start();
     }
 
-    // Run close animation when it becomes not visible; reset opened flag
     if (!visible && hasOpenedRef.current) {
       hasOpenedRef.current = false;
       Animated.spring(translateY, {
@@ -329,7 +302,6 @@ if (destination?.coordinate) {
         bounciness: 0,
       }).start();
     }
-    // Intentionally depend only on visible and destination.coordinate for the initial open
   }, [visible, destination?.coordinate]);
 
   const panResponder = PanResponder.create({
@@ -345,7 +317,6 @@ if (destination?.coordinate) {
     onPanResponderRelease: (evt, gestureState) => {
       const threshold = DRAWER_HEIGHT / 3;
       if (gestureState.dy > threshold) {
-        // Fermeture du drawer - réactiver le suivi
         if (onEnableFollowUser) {
           onEnableFollowUser();
         }
@@ -405,7 +376,7 @@ if (destination?.coordinate) {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* En-tête de célébration */}
+        {}
         <View style={styles.celebrationHeader}>
           <View style={styles.successIconContainer}>
             <Icon name="check-circle" size={48} color="#4CAF50" />
@@ -432,7 +403,7 @@ if (destination?.coordinate) {
 
         {locationInfo && !loading && (
           <View style={styles.infoContainer}>
-            {/* Adresse détaillée */}
+            {}
             {locationInfo.address && (
               <View style={styles.addressContainer}>
                 <Icon name="location-on" size={20} color="#666" />
@@ -442,7 +413,7 @@ if (destination?.coordinate) {
               </View>
             )}
 
-            {/* Photos du lieu */}
+            {}
             {photos.length > 0 && (
               <View style={styles.photosContainer}>
                 <Text style={styles.photosTitle}>Photos du lieu</Text>
@@ -472,7 +443,7 @@ if (destination?.coordinate) {
               </View>
             )}
 
-            {/* Coordonnées */}
+            {}
             {destination?.coordinate && (
               <View style={styles.coordinatesContainer}>
                 <Icon name="my-location" size={16} color="#666" />
@@ -482,7 +453,7 @@ if (destination?.coordinate) {
               </View>
             )}
 
-            {/* Informations complémentaires */}
+            {}
             {locationInfo.osm_type && (
               <View style={styles.typeContainer}>
                 <Icon name="info-outline" size={16} color="#666" />
@@ -492,7 +463,7 @@ if (destination?.coordinate) {
           </View>
         )}
 
-        {/* Boutons d'action */}
+        {}
         <View style={styles.actionsContainer}>
           {onNavigateAgain && (
             <TouchableOpacity 
@@ -740,3 +711,4 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
   },
 });
+

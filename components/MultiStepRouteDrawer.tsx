@@ -92,10 +92,9 @@ export default function MultiStepRouteDrawer({
   };
 
   const handleShowPOI = (amenityType: string) => {
-    // Ouvrir le POIDrawer pour sélectionner un POI spécifique
     setSelectedAmenityType(amenityType);
     setShowPOISelection(true);
-    setShowAddStep(false); // Fermer le modal d'ajout d'étape
+    setShowAddStep(false);
   };
 
   const formatPOIAddress = (poi: OverpassPOI): string => {
@@ -135,45 +134,40 @@ export default function MultiStepRouteDrawer({
 
   const handlePOIDrawerClose = () => {
     setShowPOISelection(false);
-    setShowAddStep(true); // Revenir au modal d'ajout d'étape
+    setShowAddStep(true);
     setSelectedAmenityType('');
   };
 
   const handlePOIsFound = (pois: OverpassPOI[]) => {
-    // Afficher les POI sur la carte
     if (onShowPOIsOnMap) {
       onShowPOIsOnMap(pois);
     }
   };
 
   const handleSelectPOIOnMap = (poi: OverpassPOI) => {
-    // Sélectionner un POI sur la carte
     if (onSelectPOIOnMap) {
       onSelectPOIOnMap(poi);
     }
   };
 
   const calculateRouteDistance = () => {
-    // Calculer la distance approximative de l'itinéraire pour définir le rayon de recherche POI
-    if (!userLocation || steps.length === 0) return 5000; // 5km par défaut
+    if (!userLocation || steps.length === 0) return 5000;
     
     let totalRouteDistance = 0;
     let currentLat = userLocation.latitude;
     let currentLng = userLocation.longitude;
     
-    // Calculer la distance totale approximative de l'itinéraire
     steps.forEach(step => {
       const distance = Math.sqrt(
         Math.pow(step.latitude - currentLat, 2) + 
         Math.pow(step.longitude - currentLng, 2)
-      ) * 111000; // Conversion approximative en mètres
+      ) * 111000;
       
       totalRouteDistance += distance;
       currentLat = step.latitude;
       currentLng = step.longitude;
     });
     
-    // Retourner un rayon basé sur la distance de l'itinéraire (50% de la distance totale, minimum 1km, maximum 20km)
     return Math.max(1000, Math.min(20000, totalRouteDistance * 0.5));
   };
 
@@ -183,13 +177,11 @@ export default function MultiStepRouteDrawer({
     setIsCalculatingRoute(true);
     
     try {
-      // Préparer les waypoints
       const waypoints = steps.map(step => ({
         latitude: step.latitude,
         longitude: step.longitude
       }));
       
-      // Calculer le temps de trajet multi-étapes
       const result = await TravelTimeService.calculateMultiStepTravelTime(
         { latitude: userLocation.latitude, longitude: userLocation.longitude },
         waypoints,
@@ -198,12 +190,9 @@ export default function MultiStepRouteDrawer({
       
       setRouteSegments(result.segments);
       
-      // Notifier le parent avec les nouvelles données
       onCalculateRoute(transportMode);
       
     } catch (error) {
-      console.error('Erreur lors du calcul de l\'itinéraire détaillé:', error);
-      // Fallback sur le calcul existant
       onCalculateRoute(transportMode);
     } finally {
       setIsCalculatingRoute(false);
@@ -224,7 +213,6 @@ export default function MultiStepRouteDrawer({
     setIsCalculatingRoute(true);
     
     try {
-      // Pour la comparaison, on utilise juste le premier et dernier point
       const destination = steps[steps.length - 1];
       
       const comparison = await TravelTimeService.compareTravelModes(
@@ -235,7 +223,6 @@ export default function MultiStepRouteDrawer({
       setModeComparison(comparison);
       setShowModeComparison(true);
     } catch (error) {
-      console.error('Erreur lors de la comparaison des modes:', error);
     } finally {
       setIsCalculatingRoute(false);
     }
@@ -264,20 +251,16 @@ export default function MultiStepRouteDrawer({
       [newSteps[currentIndex], newSteps[currentIndex + 1]] = 
       [newSteps[currentIndex + 1], newSteps[currentIndex]];
     }
-    // Trigger a layout animation for the swap
     try {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     } catch (e) {
-      // no-op
     }
 
     onReorderSteps(newSteps);
   };
 
-  // Enable LayoutAnimation on Android
   useEffect(() => {
     if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-      // @ts-ignore
       UIManager.setLayoutAnimationEnabledExperimental(true);
     }
   }, []);
@@ -299,7 +282,7 @@ export default function MultiStepRouteDrawer({
         />
         
         <View style={styles.drawer}>
-          {/* Header */}
+          {}
           <View style={styles.header}>
             <View style={styles.titleRow}>
               <Text style={styles.title}>Itinéraire multi-étapes</Text>
@@ -308,7 +291,7 @@ export default function MultiStepRouteDrawer({
               </TouchableOpacity>
             </View>
             
-            {/* Résumé du trajet */}
+            {}
             {(
               (totalDistance && totalDuration && totalDistance > 0 && totalDuration > 0) ||
               (routeSegments.length > 0)
@@ -331,9 +314,9 @@ export default function MultiStepRouteDrawer({
             )}
           </View>
 
-          {/* Liste des étapes */}
+          {}
           <ScrollView style={styles.stepsContainer}>
-            {/* Point de départ */}
+            {}
             {userLocation && (
               <View style={styles.stepItem}>
                 <View style={styles.stepMarker}>
@@ -346,7 +329,7 @@ export default function MultiStepRouteDrawer({
               </View>
             )}
 
-            {/* Étapes intermédiaires */}
+            {}
             {steps.map((step, index) => (
               <View key={step.id ?? `step_${index}`} style={styles.stepItem}>
                 <View style={styles.stepMarker}>
@@ -359,7 +342,7 @@ export default function MultiStepRouteDrawer({
                   {step.type === 'poi' && step.amenityType && (
                     <Text style={styles.stepType}>POI: {step.amenityType}</Text>
                   )}
-                  {/* Afficher les détails du segment si disponible */}
+                  {}
                   {routeSegments[index] && (
                     <Text style={styles.segmentInfo}>
                       {formatDistance(routeSegments[index].distance)} • {formatDuration(routeSegments[index].duration)}
@@ -368,7 +351,7 @@ export default function MultiStepRouteDrawer({
                 </View>
 
                 <View style={styles.stepActions}>
-                  {/* Boutons de réorganisation */}
+                  {}
                   {index > 0 && (
                     <TouchableOpacity
                       style={styles.actionButton}
@@ -387,7 +370,7 @@ export default function MultiStepRouteDrawer({
                     </TouchableOpacity>
                   )}
                   
-                  {/* Bouton supprimer */}
+                  {}
                   <TouchableOpacity
                     style={styles.actionButton}
                     onPress={() => handleRemoveStep(step.id)}
@@ -398,7 +381,7 @@ export default function MultiStepRouteDrawer({
               </View>
             ))}
 
-            {/* Bouton ajouter une étape */}
+            {}
             <TouchableOpacity
               style={styles.addStepButton}
               onPress={() => setShowAddStep(true)}
@@ -408,7 +391,7 @@ export default function MultiStepRouteDrawer({
             </TouchableOpacity>
           </ScrollView>
 
-          {/* Modes de transport */}
+          {}
           <View style={styles.transportSection}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Mode de transport</Text>
@@ -458,7 +441,7 @@ export default function MultiStepRouteDrawer({
             </ScrollView>
           </View>
 
-          {/* Boutons d'action */}
+          {}
           <View style={styles.actionSection}>
             <TouchableOpacity
               style={[styles.actionButton, styles.calculateButton]}
@@ -487,7 +470,7 @@ export default function MultiStepRouteDrawer({
           </View>
         </View>
 
-        {/* Modal pour ajouter une étape */}
+        {}
         {showAddStep && (
           <Modal
             animationType="slide"
@@ -500,7 +483,7 @@ export default function MultiStepRouteDrawer({
                 <Text style={styles.searchTitle}>Ajouter une étape</Text>
                 
                 <View style={styles.searchWrapper}>
-                  {/* Champ pour le nom personnalisé de l'étape */}
+                  {}
                   <Text style={styles.fieldLabel}>Nom de l'étape (optionnel)</Text>
                   <TextInput
                     style={styles.searchInput}
@@ -510,7 +493,7 @@ export default function MultiStepRouteDrawer({
                     returnKeyType="next"
                   />
                   
-                  {/* Recherche d'adresse ou POI */}
+                  {}
                   <Text style={styles.fieldLabel}>Adresse ou point d'intérêt</Text>
                   <View style={styles.expandableSearchContainer}>
                     <TouchableOpacity
@@ -536,7 +519,7 @@ export default function MultiStepRouteDrawer({
             </View>
           </Modal>
         )}
-        {/* Render AddStepModal as top-level overlay so it appears above the 'Ajouter une étape' modal */}
+        {}
         {showAddStepSearch && (
           <AddStepModal
             visible={showAddStepSearch}
@@ -549,7 +532,7 @@ export default function MultiStepRouteDrawer({
           />
         )}
 
-        {/* POI Selection Drawer */}
+        {}
         <POIDrawer
           visible={showPOISelection}
           amenityType={selectedAmenityType}
@@ -557,16 +540,14 @@ export default function MultiStepRouteDrawer({
           onClose={handlePOIDrawerClose}
           onSelectPOI={handlePOISelect}
           onShowRoute={(poi, transportMode) => {
-            // Gérer l'affichage de l'itinéraire vers le POI si nécessaire
 }}
           onRadiusChange={(radius) => {
-            // Le rayon est géré automatiquement par le POIDrawer
           }}
           onPOIsFound={handlePOIsFound}
           initialRadius={calculateRouteDistance()}
         />
 
-        {/* Modal de comparaison des modes de transport */}
+        {}
         {showModeComparison && modeComparison && (
           <Modal
             animationType="slide"
@@ -910,7 +891,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
-  // Styles pour la comparaison des modes de transport
   comparisonModal: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -1007,3 +987,4 @@ const styles = StyleSheet.create({
     color: '#007AFF',
   },
 });
+

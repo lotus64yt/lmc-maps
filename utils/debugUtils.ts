@@ -1,9 +1,4 @@
-/**
- * Debug utility for conditional logging
- * Set DEBUG_MODE to false for production builds
- */
-
-const DEBUG_MODE = __DEV__; // Uses React Native's __DEV__ flag
+const DEBUG_MODE = __DEV__;
 
 export const debugLog = {
   info: (message: string, ...args: any[]) => {

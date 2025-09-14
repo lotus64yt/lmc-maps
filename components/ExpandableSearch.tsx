@@ -31,7 +31,6 @@ import OverPassAmenityList, {
   AmenityType,
 } from "../assets/overpass/amenityList";
 
-// Composant optimisé pour les éléments de la liste
 const SearchResultItem = memo(
   ({
     item,
@@ -56,7 +55,6 @@ const SearchResultItem = memo(
     getCategoryColor: (type: AmenityType) => string;
     onDeleteHistoryItem: (id: string) => void;
   }) => {
-    // Si c'est un en-tête de catégorie
     if (item.amenityType?.startsWith("category_")) {
       const categoryType = item.amenityType.replace(
         "category_",
@@ -77,7 +75,6 @@ const SearchResultItem = memo(
       );
     }
 
-    // Rendu normal pour les autres éléments
     return (
       <TouchableOpacity
         style={styles.resultItem}
@@ -131,7 +128,7 @@ const SearchResultItem = memo(
                 <Icon name="directions" size={20} color="#007AFF" />
               </TouchableOpacity>
             )}
-          {/* Bouton pour ajouter un arrêt pendant la navigation */}
+          {}
           {isNavigating &&
             (item.type === "nominatim" ||
               item.type === "history" ||
@@ -173,7 +170,7 @@ const SearchResultItem = memo(
               <Icon name="close" size={16} color="#999" />
             </TouchableOpacity>
           )}
-          {/* Favorite toggle */}
+          {}
           {(item.type === 'nominatim' || item.type === 'history' || item.type === 'overpass') && onToggleFavorite && (
             <TouchableOpacity style={styles.favoriteButton} onPress={() => onToggleFavorite(item)}>
               <Icon name={isFavorite && isFavorite(item.id) ? 'star' : 'star-border'} size={20} color="#FFB300" />
@@ -193,7 +190,7 @@ interface SearchResult {
   longitude: number;
   type: "nominatim" | "overpass" | "history";
   searchCount?: number;
-  amenityType?: string; // Pour les POI Overpass
+  amenityType?: string;
 }
 
 interface ExpandableSearchProps {
@@ -208,9 +205,9 @@ interface ExpandableSearchProps {
   isNavigating?: boolean;
   onAddNavigationStop?: (result: SearchResult) => void;
   onSearchNearbyPOI?: (amenityType: string) => void;
-  autoExpand?: boolean; // Nouveau prop pour auto-expansion
-  onClose?: () => void; // Nouveau prop pour fermer le modal
-  onResumeLastTrip?: () => void; // Ouvrir le dialog / reprendre le dernier trajet
+  autoExpand?: boolean;
+  onClose?: () => void;
+  onResumeLastTrip?: () => void;
   onCameraMove?: (coordinate: { latitude: number; longitude: number } | null, offset?: { x: number; y: number }) => void;
   onImportGpx?: () => void;
 }
@@ -236,7 +233,6 @@ export default function ExpandableSearch({
   const { width: windowWidth } = useWindowDimensions();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSettingsOverlay, setShowSettingsOverlay] = useState(false);
-  // Accordion state for POI categories (collapsed by default)
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const animatedHeightsRef = useRef<Record<string, Animated.Value>>({});
   const animatedRotationsRef = useRef<Record<string, Animated.Value>>({});
@@ -248,14 +244,10 @@ export default function ExpandableSearch({
   const [historyItems, setHistoryItems] = useState<SearchResult[]>([]);
   const searchTimeout = useRef<NodeJS.Timeout>();
 
-  // Animation pour l'expansion
   const expandAnim = useRef(new Animated.Value(0)).current;
-  // Animate list appearance
   const listAnim = useRef(new Animated.Value(0)).current;
   const expandedInputRef = useRef<TextInput | null>(null);
 
-  // Charger l'historique au démarrage
-  // Depend on primitive lat/lon to avoid re-running when parent recreates userLocation object
   useEffect(() => {
     loadHistory();
     loadFavorites();
@@ -266,7 +258,6 @@ export default function ExpandableSearch({
       const favs = await FavoritesService.listFavorites();
       setFavoriteIds(favs.map((f) => f.id));
     } catch (e) {
-      console.error('ExpandableSearch.loadFavorites', e);
     }
   };
 
@@ -284,24 +275,21 @@ export default function ExpandableSearch({
       Vibration.vibrate(30);
       loadFavorites();
     } catch (e) {
-      console.error('toggle favorite error', e);
     }
   };
 
-  // Fonction pour charger l'historique
   const loadHistory = async () => {
     try {
       const history = await RouteHistoryService.getHistory();
 
-      // Filtrer par zone géographique si on a la position utilisateur
       const filteredHistory = userLocation
         ? RouteHistoryService.filterByLocation(
             history,
             userLocation.latitude,
             userLocation.longitude,
-            100 // Rayon de 100km
+            100
           )
-        : history.slice(0, 5); // Sinon, prendre les 5 premiers
+        : history.slice(0, 5);
 
       const historyResults: SearchResult[] = filteredHistory.map((item) => ({
         id: item.id,
@@ -315,7 +303,6 @@ export default function ExpandableSearch({
 
       setHistoryItems(historyResults);
     } catch (error) {
-      console.error("Erreur lors du chargement de l'historique:", error);
     }
   };
 
@@ -327,18 +314,15 @@ export default function ExpandableSearch({
     }).start();
   }, [isExpanded]);
 
-  // Enable LayoutAnimation on Android
   useEffect(() => {
     if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
       try {
         UIManager.setLayoutAnimationEnabledExperimental(true);
       } catch (e) {
-        // ignore
       }
     }
   }, []);
 
-  // Animate list fade/slide when expanded or results change
   useEffect(() => {
     Animated.timing(listAnim, {
       toValue: isExpanded ? 1 : 0,
@@ -347,19 +331,16 @@ export default function ExpandableSearch({
     }).start();
   }, [isExpanded, searchMode, searchResults.length, historyItems.length]);
 
-  // Use LayoutAnimation on major list changes for smooth rearrange
   useEffect(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
   }, [searchResults, historyItems, searchMode]);
 
-  // Auto-expansion si demandée (pour le mode navigation)
   useEffect(() => {
     if (autoExpand && !isExpanded) {
       setIsExpanded(true);
     }
   }, [autoExpand]);
 
-  // Fonction centralisée pour fermer le modal
   const handleClose = () => {
     setIsExpanded(false);
     if (onClose) {
@@ -367,33 +348,25 @@ export default function ExpandableSearch({
     }
   };
 
-  // Fonction pour détecter si le texte contient des coordonnées
   const detectCoordinates = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return null;
 
-    // Patterns pour différents formats de coordonnées
     const patterns = [
-      // DD: 45.123456, -74.123456 ou 45.123456,-74.123456
       /^[-+]?([1-8]?\d(\.\d+)?|90(\.0+)?)\s*,\s*[-+]?(180(\.0+)?|((1[0-7]\d)|([1-9]?\d))(\.\d+)?)$/,
-      // DD avec espaces: 45.123456 -74.123456
       /^[-+]?([1-8]?\d(\.\d+)?|90(\.0+)?)\s+[-+]?(180(\.0+)?|((1[0-7]\d)|([1-9]?\d))(\.\d+)?)$/,
-      // DMS: 45°7'22.032"N 74°7'22.032"W
       /^\d{1,3}°\d{1,2}['′]\d{1,2}(\.\d+)?["″][NS]\s*\d{1,3}°\d{1,2}['′]\d{1,2}(\.\d+)?["″][EW]$/i,
-      // DMM: 45°7.3672'N 74°7.3672'W
       /^\d{1,3}°\d{1,2}\.\d+['′][NS]\s*\d{1,3}°\d{1,2}\.\d+['′][EW]$/i,
     ];
 
     return patterns.some((pattern) => pattern.test(trimmed));
   };
 
-  // Fonction pour parser les coordonnées depuis différents formats
   const parseCoordinates = (
     text: string
   ): { latitude: number; longitude: number } | null => {
     const trimmed = text.trim();
 
-    // Format DD simple: lat, lon
     const ddMatch = trimmed.match(
       /^([-+]?[1-8]?\d(?:\.\d+)?|90(?:\.0+)?)\s*[,\s]\s*([-+]?(?:180(?:\.0+)?|(?:1[0-7]\d|[1-9]?\d)(?:\.\d+)?))$/
     );
@@ -407,18 +380,15 @@ export default function ExpandableSearch({
     return null;
   };
 
-  // Recherche avec debounce plus long - se déclenche seulement quand l'utilisateur arrête d'écrire
   useEffect(() => {
     if (searchTimeout.current) {
       clearTimeout(searchTimeout.current);
     }
 
-    // Vérifier si le texte contient des coordonnées
     if (isExpanded && searchMode === "address" && value.trim().length > 0) {
       const isCoordinates = detectCoordinates(value);
 
       if (isCoordinates) {
-        // Si c'est des coordonnées, ne pas faire d'appel API et proposer "Aller à ce point"
         const coords = parseCoordinates(value);
         if (coords) {
           setSearchResults([
@@ -448,9 +418,8 @@ export default function ExpandableSearch({
       searchTimeout.current = setTimeout(() => {
         performSearch(value);
         setShouldSearch(false);
-      }, 1500); // Augmenté à 1.5 secondes
+      }, 1500);
     } else if (isExpanded && searchMode === "poi") {
-      // Pour les POI, rechercher immédiatement même avec un champ vide
       searchPOIs(value);
     } else if (value.trim().length <= 2 && searchMode === "address") {
       setSearchResults([]);
@@ -472,7 +441,6 @@ export default function ExpandableSearch({
         await searchPOIs(query);
       }
     } catch (error) {
-      console.error("Erreur de recherche:", error);
       setSearchResults([]);
     }
     setIsLoading(false);
@@ -490,10 +458,8 @@ export default function ExpandableSearch({
       type: "nominatim",
     }));
 
-    // Combiner l'historique et les nouveaux résultats
     const combinedResults = [...historyItems, ...formattedResults];
 
-    // Filtrer les doublons (même coordonnées)
     const uniqueResults = combinedResults.filter((item, index, arr) => {
       return (
         arr.findIndex(
@@ -504,7 +470,6 @@ export default function ExpandableSearch({
       );
     });
 
-    // Trier : historique en premier (par searchCount), puis nouveaux résultats
     const sortedResults = uniqueResults.sort((a, b) => {
       if (a.type === "history" && b.type !== "history") return -1;
       if (a.type !== "history" && b.type === "history") return 1;
@@ -517,21 +482,18 @@ export default function ExpandableSearch({
     setSearchResults(sortedResults);
   };
 
-  // Fonction pour normaliser le texte (supprimer les accents et mettre en minuscules)
   const normalizeText = (text: string): string => {
     return text
       .toLowerCase()
       .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, ""); // Supprimer les accents
+      .replace(/[\u0300-\u036f]/g, "");
   };
 
   const searchPOIs = async (query: string) => {
     const normalizedQuery = normalizeText(query.trim());
 
-    // Si la requête est vide, afficher tous les amenities
     let matchingAmenities = OverPassAmenityList;
 
-    // Si il y a une requête, filtrer les amenities
     if (normalizedQuery.length > 0) {
       matchingAmenities = OverPassAmenityList.filter((amenity) => {
         const normalizedLabel = normalizeText(amenity.label);
@@ -548,7 +510,6 @@ export default function ExpandableSearch({
       });
     }
 
-    // Grouper par catégorie
     const groupedByType = matchingAmenities.reduce((acc, amenity) => {
       if (!acc[amenity.type]) {
         acc[amenity.type] = [];
@@ -557,10 +518,8 @@ export default function ExpandableSearch({
       return acc;
     }, {} as Record<AmenityType, typeof matchingAmenities>);
 
-    // Créer les résultats avec headers de catégorie
     const poiResults: SearchResult[] = [];
 
-    // Ordre des catégories
     const categoryOrder: AmenityType[] = [
       "Sustenance",
       "Education",
@@ -576,7 +535,6 @@ export default function ExpandableSearch({
 
     categoryOrder.forEach((category) => {
       if (groupedByType[category] && groupedByType[category].length > 0) {
-        // Ajouter l'en-tête de catégorie
         poiResults.push({
           id: `category_${category}`,
           title: getCategoryEmoji(category) + " " + category,
@@ -587,7 +545,6 @@ export default function ExpandableSearch({
           amenityType: `category_${category}`,
         });
 
-        // Ajouter les amenities de cette catégorie
         groupedByType[category].forEach((amenity, index) => {
           poiResults.push({
             id: `poi_${amenity.value}_${index}`,
@@ -607,7 +564,6 @@ export default function ExpandableSearch({
     setSearchResults(poiResults);
   };
 
-  // Fonction pour rechercher les POI via l'API et les passer au drawer
   const handlePOISearch = async (amenityType: string) => {
     if (!userLocation || !onShowPOI) return;
 
@@ -615,33 +571,26 @@ export default function ExpandableSearch({
       const results = await OverpassService.searchPOI(
         userLocation.latitude,
         userLocation.longitude,
-        5000, // Rayon fixe de 5km
+        5000,
         amenityType
       );
 
-      // Passer les résultats au POIDrawer
       onShowPOI(amenityType, results);
     } catch (error) {
-      console.error("Erreur lors de la recherche POI:", error);
-      // En cas d'erreur, ouvrir le drawer sans POI pré-chargés
       onShowPOI(amenityType);
     }
   };
 
-  // Callbacks mémorisés pour optimiser les performances
   const handleSelectResultCallback = useCallback(
     (result: SearchResult) => {
       Vibration.vibrate(50);
 
-      // Ignorer les clics sur les en-têtes de catégorie
       if (result.amenityType?.startsWith("category_")) {
         return;
       }
 
       if (result.type === "overpass") {
-        // Pour les POI Overpass, faire d'abord la recherche puis ouvrir le POIDrawer
         if (result.amenityType && onShowPOI && userLocation) {
-          // Faire la recherche POI avant d'ouvrir le drawer
           handlePOISearch(result.amenityType);
           setIsExpanded(false);
           setSearchResults([]);
@@ -649,7 +598,6 @@ export default function ExpandableSearch({
         }
       }
 
-      // Ajouter à l'historique si ce n'est pas déjà un élément d'historique
       if (result.type !== "history") {
         RouteHistoryService.addToHistory({
           title: result.title,
@@ -657,29 +605,24 @@ export default function ExpandableSearch({
           latitude: result.latitude,
           longitude: result.longitude,
         }).then(() => {
-          loadHistory(); // Recharger l'historique
+          loadHistory();
         });
       } else {
-        // Si c'est un élément d'historique, l'incrémenter
         RouteHistoryService.addToHistory({
           title: result.title,
           subtitle: result.subtitle,
           latitude: result.latitude,
           longitude: result.longitude,
         }).then(() => {
-          loadHistory(); // Recharger l'historique
+          loadHistory();
         });
       }
 
-      // If this is an Overpass POI with coordinates, optionally move camera so the POI appears above drawers
       if (result.type === 'overpass' && onCameraMove && result.latitude && result.longitude) {
-  // Use a reasonable offset to show the POI above most drawers (y in pixels)
   const offset = { x: 0, y: 400 };
         try {
-          // Slight delay to avoid clashing with modal animations
           setTimeout(() => onCameraMove && onCameraMove({ latitude: result.latitude, longitude: result.longitude }, offset), 80);
         } catch (e) {
-          // ignore
         }
       }
 
@@ -694,7 +637,6 @@ export default function ExpandableSearch({
     (item: SearchResult) => {
       if (!onShowRoute) return;
 
-      // Ajouter à l'historique même quand on utilise le bouton route
       if (item.type !== "history") {
         RouteHistoryService.addToHistory({
           title: item.title,
@@ -717,7 +659,6 @@ export default function ExpandableSearch({
     (item: SearchResult) => {
       if (!onAddNavigationStop) return;
 
-      // Ajouter à l'historique si ce n'est pas déjà fait
       if (item.type !== "history") {
         RouteHistoryService.addToHistory({
           title: item.title,
@@ -740,7 +681,6 @@ export default function ExpandableSearch({
     (item: SearchResult) => {
       if (!onAddStep) return;
 
-      // Ajouter à l'historique si ce n'est pas déjà fait
       if (item.type !== "history") {
         RouteHistoryService.addToHistory({
           title: item.title,
@@ -762,7 +702,6 @@ export default function ExpandableSearch({
   const handleDeleteHistoryItemCallback = useCallback((id: string) => {
     RouteHistoryService.removeFromHistory(id).then(() => {
       loadHistory();
-      // Mettre à jour la liste actuelle si elle contient cet élément
       setSearchResults((prev) => prev.filter((r) => r.id !== id));
     });
   }, []);
@@ -797,25 +736,25 @@ export default function ExpandableSearch({
   const getCategoryColor = useCallback((type: AmenityType): string => {
     switch (type) {
       case "Sustenance":
-        return "#FF9500"; // Orange
+        return "#FF9500";
       case "Education":
-        return "#007AFF"; // Bleu
+        return "#007AFF";
       case "Transportation":
-        return "#34C759"; // Vert
+        return "#34C759";
       case "Finance":
-        return "#FFD60A"; // Jaune doré
+        return "#FFD60A";
       case "Healthcare":
-        return "#FF3B30"; // Rouge
+        return "#FF3B30";
       case "Entertainment":
-        return "#AF52DE"; // Violet
+        return "#AF52DE";
       case "PublicService":
-        return "#5856D6"; // Indigo
+        return "#5856D6";
       case "Facilities":
-        return "#48CAE4"; // Bleu clair
+        return "#48CAE4";
       case "Waste":
-        return "#8E8E93"; // Gris
+        return "#8E8E93";
       case "Other":
-        return "#FF6B6B"; // Rose
+        return "#FF6B6B";
       default:
         return "#666";
     }
@@ -824,7 +763,6 @@ export default function ExpandableSearch({
   const getDisplayTitle = (result: NominatimSearchResult): string => {
     const address = result.address;
 
-    // Priorité : nom de lieu > route > ville
     if (address.city || address.town || address.village) {
       return address.city || address.town || address.village!;
     }
@@ -833,7 +771,6 @@ export default function ExpandableSearch({
       return address.road;
     }
 
-    // Fallback sur le display_name tronqué
     return result.display_name.split(",")[0];
   };
 
@@ -842,7 +779,6 @@ export default function ExpandableSearch({
   };
 
   const handleBlur = () => {
-    // Délai pour permettre la sélection d'un résultat
     setTimeout(() => {
       setIsExpanded(false);
     }, 200);
@@ -850,7 +786,7 @@ export default function ExpandableSearch({
 
   const handleTextChange = (text: string) => {
     onChangeText(text);
-    setShouldSearch(true); // Marquer qu'une recherche est demandée
+    setShouldSearch(true);
   };
 
   const handleSearchPress = () => {
@@ -859,7 +795,6 @@ export default function ExpandableSearch({
     if (searchMode === "address" && value.trim().length > 2) {
       performSearch(value);
     } else if (searchMode === "poi") {
-      // Pour les POI, toujours effectuer la recherche
       searchPOIs(value);
     }
     if (!isExpanded) {
@@ -870,15 +805,12 @@ export default function ExpandableSearch({
   const handleSelectResult = (result: SearchResult) => {
     Vibration.vibrate(50);
 
-    // Ignorer les clics sur les en-têtes de catégorie
     if (result.amenityType?.startsWith("category_")) {
       return;
     }
 
     if (result.type === "overpass") {
-      // Pour les POI Overpass, faire d'abord la recherche puis ouvrir le POIDrawer
       if (result.amenityType && onShowPOI && userLocation) {
-        // Faire la recherche POI avant d'ouvrir le drawer
         handlePOISearch(result.amenityType);
         setIsExpanded(false);
         setSearchResults([]);
@@ -886,7 +818,6 @@ export default function ExpandableSearch({
       }
     }
 
-    // Ajouter à l'historique si ce n'est pas déjà un élément d'historique
     if (result.type !== "history") {
       RouteHistoryService.addToHistory({
         title: result.title,
@@ -894,17 +825,16 @@ export default function ExpandableSearch({
         latitude: result.latitude,
         longitude: result.longitude,
       }).then(() => {
-        loadHistory(); // Recharger l'historique
+        loadHistory();
       });
     } else {
-      // Si c'est un élément d'historique, l'incrémenter
       RouteHistoryService.addToHistory({
         title: result.title,
         subtitle: result.subtitle,
         latitude: result.latitude,
         longitude: result.longitude,
       }).then(() => {
-        loadHistory(); // Recharger l'historique
+        loadHistory();
       });
     }
 
@@ -913,7 +843,6 @@ export default function ExpandableSearch({
     setSearchResults([]);
   };
 
-  // Fonction pour extraire la clé d'un élément
   const keyExtractor = useCallback((item: SearchResult) => item.id, []);
 
   const renderSearchResult = useCallback(
@@ -947,7 +876,6 @@ export default function ExpandableSearch({
     ]
   );
 
-  // Group searchResults into categories for POI mode
   const groupedCategories = React.useMemo(() => {
     const groups: Array<{ key: string; header: SearchResult; items: SearchResult[] }> = [];
     let current: { key: string; header: SearchResult; items: SearchResult[] } | null = null;
@@ -964,7 +892,6 @@ export default function ExpandableSearch({
     return groups;
   }, [searchResults]);
 
-  // Initialize animated values for categories when groupedCategories changes
   React.useEffect(() => {
     groupedCategories.forEach((group) => {
       const key = group.key;
@@ -980,7 +907,7 @@ export default function ExpandableSearch({
 
   const toggleCategory = (key: string, itemCount: number) => {
     const isExpanded = !!expandedCategories[key];
-    const rowHeight = 64; // approximate height per item row
+    const rowHeight = 64;
     const contentHeight = itemCount * rowHeight;
     const heightAnim = animatedHeightsRef.current[key];
     const rotateAnim = animatedRotationsRef.current[key];
@@ -1004,19 +931,18 @@ export default function ExpandableSearch({
 
   return (
   <>
-      {/* Barre de recherche normale */}
+      {}
       {!isNavigating && (
         <View style={[
             styles.searchContainer,
             windowWidth > 700 ? { left: windowWidth * 0.12, right: windowWidth * 0.12, top: 32 } : {},
           ]}>
-          {/* When collapsed, the input must not open keyboard. Tap opens full search modal and then focuses. */}
+          {}
           <TouchableOpacity
             activeOpacity={0.8}
             style={styles.searchInputTouchable}
             onPress={() => {
               setIsExpanded(true);
-              // focus the expanded input after modal mounts
               setTimeout(() => {
                 expandedInputRef.current?.focus();
               }, 60);
@@ -1037,7 +963,7 @@ export default function ExpandableSearch({
 
   <SettingsOverlay visible={showSettingsOverlay} onClose={() => setShowSettingsOverlay(false)} onImportGpx={onImportGpx} />
 
-      {/* Modal de recherche expandée */}
+      {}
       <Modal
         visible={isExpanded}
         animationType="slide"
@@ -1045,7 +971,7 @@ export default function ExpandableSearch({
         onRequestClose={handleClose}
       >
         <SafeAreaView style={styles.expandedContainer}>
-          {/* Header avec barre de recherche */}
+          {}
           <View style={styles.expandedHeader}>
             <TouchableOpacity
               style={styles.backButton}
@@ -1086,7 +1012,7 @@ export default function ExpandableSearch({
             </View>
           </View>
 
-          {/* Modes de recherche */}
+          {}
           <View style={styles.searchModes}>
             <TouchableOpacity
               style={[
@@ -1162,7 +1088,7 @@ export default function ExpandableSearch({
                   Trajets récents
                 </Text>
             </TouchableOpacity>
-            {/* manual search button moved to header for better UX */}
+            {}
           </View>
 
           <View style={styles.quickPOIContainer}>
@@ -1235,7 +1161,7 @@ export default function ExpandableSearch({
             </View>
           </View>
 
-          {/* Résultats */}
+          {}
           <Animated.View style={[styles.resultsContainer, {
             opacity: listAnim,
             transform: [{ translateY: listAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }]
@@ -1285,7 +1211,7 @@ export default function ExpandableSearch({
                           <Text style={styles.clearHistoryText}>Effacer</Text>
                         </TouchableOpacity>
                       )}
-                      {/* Bouton pour reprendre le dernier itinéraire */}
+                      {}
                       <TouchableOpacity
                         style={[styles.clearHistoryButton, { marginLeft: 8, backgroundColor: '#28A745' }]}
                         onPress={() => {
@@ -1330,7 +1256,7 @@ export default function ExpandableSearch({
               />
             )}
           </Animated.View>
-          {/* Import moved to SettingsOverlay */}
+          {}
         </SafeAreaView>
       </Modal>
     </>
@@ -1625,3 +1551,4 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 });
+

@@ -43,9 +43,7 @@ export class NominatimService {
     'Referer': 'https://lmcgroup.xyz/'
   };
 
-  /**
-   * Recherche d'adresses/lieux par texte
-   */
+  
   static async search(query: string, options?: {
     limit?: number;
     countryCode?: string;
@@ -83,14 +81,11 @@ export class NominatimService {
 
       return await response.json();
     } catch (error) {
-      console.error('Erreur lors de la recherche Nominatim:', error);
       return [];
     }
   }
 
-  /**
-   * Géocodage inverse - obtenir l'adresse à partir de coordonnées
-   */
+  
   static async reverse(lat: number, lon: number, options?: {
     zoom?: number;
     addressDetails?: boolean;
@@ -115,20 +110,15 @@ export class NominatimService {
 
       return await response.json();
     } catch (error) {
-      console.error('Erreur lors du géocodage inverse Nominatim:', error);
       return null;
     }
   }
 
-  /**
-   * Détermine le niveau de zoom approprié selon le type de zone
-   */
+  
   static getAdaptiveZoom(address: NominatimAddress): number {
-    // Routes spécifiques
     if (address.road) {
       const road = address.road.toLowerCase();
 
-      // Autoroutes
       if (
         road.includes('autoroute') ||
         (road.startsWith('a') && /^\d+$/.test(road.slice(1))) ||
@@ -137,7 +127,6 @@ export class NominatimService {
         return 10;
       }
 
-      // Routes nationales
       if (
         (road.startsWith('n') && /^\d+$/.test(road.slice(1))) ||
         road.includes('route nationale') ||
@@ -146,7 +135,6 @@ export class NominatimService {
         return 17;
       }
 
-      // Départementales
       if (
         (road.startsWith('d') && /^\d+$/.test(road.slice(1))) ||
         road.includes('route départementale') ||
@@ -155,7 +143,6 @@ export class NominatimService {
         return 18;
       }
 
-      // Routes communales ou petites rues
       if (
         (road.startsWith('c') && /^\d+$/.test(road.slice(1))) ||
         road.includes('rue') ||
@@ -169,28 +156,22 @@ export class NominatimService {
       }
     }
 
-    // Zone urbaine dense - zoom proche
     if (address.city || address.town || address.municipality) {
       return 18;
     }
 
-    // Zone suburbaine/village - zoom moyen
     if (address.village || address.hamlet || address.suburb) {
       return 17;
     }
 
-    // Zone rurale - zoom large
     if (address.county || address.state) {
       return 16;
     }
 
-    // Par défaut - zoom standard
     return 15;
   }
 
-  /**
-   * Obtient le niveau de zoom adaptatif pour une position donnée
-   */
+  
   static async getZoomForLocation(lat: number, lon: number): Promise<number> {
     const result = await this.reverse(lat, lon, { zoom: 10 });
     
@@ -198,13 +179,10 @@ export class NominatimService {
       return this.getAdaptiveZoom(result.address);
     }
     
-    // Fallback si pas de données
     return 14;
   }
 
-  /**
-   * Recherche simplifiée qui retourne directement les coordonnées
-   */
+  
   static async searchCoordinates(query: string): Promise<{
     latitude: number;
     longitude: number;
@@ -224,9 +202,7 @@ export class NominatimService {
     return null;
   }
 
-  /**
-   * Obtient une description lisible d'une adresse
-   */
+  
   static formatAddress(address: NominatimAddress): string {
     const parts: string[] = [];
     
@@ -251,3 +227,4 @@ export class NominatimService {
     return parts.join(', ');
   }
 }
+

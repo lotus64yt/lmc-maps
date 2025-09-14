@@ -7,46 +7,37 @@ export interface RouteDirectionCalculation {
   distanceToRoute?: number;
 }
 
-/**
- * Service pour calculer la direction de la route basée sur la position de l'utilisateur
- * et les coordonnées de la route pour un alignement optimal de la flèche de navigation
- */
+
 export class RouteDirectionService {
   
-  /**
-   * Calcule la direction de la route à partir de la position actuelle de l'utilisateur
-   */
+  
   static calculateRouteDirection(
     userLocation: { latitude: number; longitude: number },
     routeCoords: Coordinate[],
-    threshold: number = 30 // Distance maximale en mètres pour être considéré sur la route
+    threshold: number = 30
   ): RouteDirectionCalculation {
     
     if (!routeCoords || routeCoords.length < 2) {
       return { bearing: 0, isOnRoute: false };
     }
 
-    // Trouver le segment de route le plus proche
     const nearestSegment = this.findNearestRouteSegment(userLocation, routeCoords);
     
     if (!nearestSegment || nearestSegment.distance > threshold) {
       return { bearing: 0, isOnRoute: false, distanceToRoute: nearestSegment?.distance };
     }
 
-    // L'utilisateur est sur la route, calculer la direction du segment
     const segmentBearing = this.calculateSegmentBearing(
       nearestSegment.start,
       nearestSegment.end
     );
 
-    // Calculer la direction future (regarder plus loin sur la route pour une direction plus stable)
     const futureBearing = this.calculateFutureRouteDirection(
       routeCoords,
       nearestSegment.startIndex,
-      100 // Distance de regard en avant (en mètres)
+      100
     );
 
-    // Utiliser la direction future si disponible, sinon la direction du segment actuel
     const finalBearing = futureBearing !== null ? futureBearing : segmentBearing;
 
     return {
@@ -57,9 +48,7 @@ export class RouteDirectionService {
     };
   }
 
-  /**
-   * Trouve le segment de route le plus proche de la position de l'utilisateur
-   */
+  
   private static findNearestRouteSegment(
     userLocation: { latitude: number; longitude: number },
     routeCoords: Coordinate[]
@@ -96,9 +85,7 @@ export class RouteDirectionService {
     return nearestSegment;
   }
 
-  /**
-   * Projette un point sur un segment de ligne et retourne le point projeté
-   */
+  
   private static projectPointOnSegment(
     point: { latitude: number; longitude: number },
     segmentStart: Coordinate,
@@ -126,9 +113,7 @@ export class RouteDirectionService {
     return { point: projectedPoint, t };
   }
 
-  /**
-   * Calcule la direction (bearing) d'un segment de route
-   */
+  
   private static calculateSegmentBearing(start: Coordinate, end: Coordinate): number {
     const dLon = this.toRadians(end.longitude - start.longitude);
     const lat1 = this.toRadians(start.latitude);
@@ -142,14 +127,11 @@ export class RouteDirectionService {
     return (this.toDegrees(bearing) + 360) % 360;
   }
 
-  /**
-   * Calcule la direction future de la route en regardant plus loin
-   * pour une direction plus stable et prévisible
-   */
+  
   private static calculateFutureRouteDirection(
     routeCoords: Coordinate[],
     currentIndex: number,
-    lookAheadDistance: number // en mètres
+    lookAheadDistance: number
   ): number | null {
     
     if (currentIndex >= routeCoords.length - 1) {
@@ -160,7 +142,6 @@ export class RouteDirectionService {
     let accumulatedDistance = 0;
     let endIndex = currentIndex + 1;
 
-    // Accumuler la distance jusqu'à atteindre la distance de regard en avant
     for (let i = currentIndex + 1; i < routeCoords.length; i++) {
       const segmentDistance = this.calculateDistance(routeCoords[i - 1], routeCoords[i]);
       accumulatedDistance += segmentDistance;
@@ -173,7 +154,6 @@ export class RouteDirectionService {
       endIndex = i;
     }
 
-    // Si on n'a pas assez de route devant, utiliser le dernier point disponible
     if (endIndex === currentIndex + 1 && accumulatedDistance < lookAheadDistance / 2) {
       return null;
     }
@@ -182,15 +162,12 @@ export class RouteDirectionService {
     return this.calculateSegmentBearing(startPoint, endPoint);
   }
 
-  /**
-   * Calcule la distance entre deux points en utilisant la formule de Haversine
-   * (méthode publique pour utilisation externe)
-   */
+  
   static calculateDistance(
     point1: { latitude: number; longitude: number },
     point2: { latitude: number; longitude: number }
   ): number {
-    const R = 6371000; // Rayon de la Terre en mètres
+    const R = 6371000;
     const φ1 = this.toRadians(point1.latitude);
     const φ2 = this.toRadians(point2.latitude);
     const Δφ = this.toRadians(point2.latitude - point1.latitude);
@@ -204,14 +181,11 @@ export class RouteDirectionService {
     return R * c;
   }
 
-  /**
-   * Calcule une direction lissée en moyennant plusieurs segments
-   * pour réduire les variations brusques
-   */
+  
   static calculateSmoothedRouteDirection(
     userLocation: { latitude: number; longitude: number },
     routeCoords: Coordinate[],
-    smoothingDistance: number = 50 // Distance en mètres pour le lissage
+    smoothingDistance: number = 50
   ): RouteDirectionCalculation {
     
     const baseResult = this.calculateRouteDirection(userLocation, routeCoords);
@@ -220,7 +194,6 @@ export class RouteDirectionService {
       return baseResult;
     }
 
-    // Calculer plusieurs directions dans un rayon de lissage
     const bearings: number[] = [];
     const startIndex = Math.max(0, baseResult.nearestPointIndex - 2);
     const endIndex = Math.min(routeCoords.length - 2, baseResult.nearestPointIndex + 2);
@@ -230,7 +203,6 @@ export class RouteDirectionService {
       bearings.push(bearing);
     }
 
-    // Calculer la moyenne des bearings en tenant compte de la nature circulaire des angles
     const smoothedBearing = this.calculateMeanBearing(bearings);
 
     return {
@@ -239,9 +211,7 @@ export class RouteDirectionService {
     };
   }
 
-  /**
-   * Calcule la moyenne de plusieurs bearings en tenant compte de leur nature circulaire
-   */
+  
   private static calculateMeanBearing(bearings: number[]): number {
     if (bearings.length === 0) return 0;
     if (bearings.length === 1) return bearings[0];
@@ -259,37 +229,29 @@ export class RouteDirectionService {
     return (this.toDegrees(meanRad) + 360) % 360;
   }
 
-  /**
-   * Convertit les degrés en radians
-   */
+  
   private static toRadians(degrees: number): number {
     return degrees * (Math.PI / 180);
   }
 
-  /**
-   * Convertit les radians en degrés
-   */
+  
   private static toDegrees(radians: number): number {
     return radians * (180 / Math.PI);
   }
 
-  /**
-   * Détermine si l'utilisateur se déplace dans le bon sens sur la route
-   */
+  
   static isMovingInCorrectDirection(
     userLocation: { latitude: number; longitude: number },
     previousLocation: { latitude: number; longitude: number },
     routeDirection: number,
-    tolerance: number = 45 // Tolérance en degrés
+    tolerance: number = 45
   ): boolean {
     
-    // Calculer la direction du mouvement de l'utilisateur
     const userBearing = this.calculateSegmentBearing(
       previousLocation,
       userLocation
     );
 
-    // Calculer la différence d'angle
     let angleDiff = Math.abs(userBearing - routeDirection);
     if (angleDiff > 180) {
       angleDiff = 360 - angleDiff;
@@ -298,3 +260,4 @@ export class RouteDirectionService {
     return angleDiff <= tolerance;
   }
 }
+

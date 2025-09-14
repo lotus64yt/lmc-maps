@@ -10,7 +10,7 @@ export default function ProgressSidebar({ progressPercentage }: Props) {
   const arrowSize = 20;
 
   const windowHeight = Dimensions.get("window").height;
-  const dynamicHeight = Math.round(windowHeight * 0.6); // 60% de l'écran
+  const dynamicHeight = Math.round(windowHeight * 0.6);
   const containerTop = Math.max(8, Math.round((windowHeight - dynamicHeight) / 2));
 
   useEffect(() => {
@@ -101,7 +101,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderRadius: 12,
     zIndex: 1,
-    backgroundColor: "#1976D2", // couleur pleine à la place du dégradé
+    backgroundColor: "#1976D2",
   },
   arrowContainer: {
     position: "absolute",
@@ -123,3 +123,4 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
 });
+

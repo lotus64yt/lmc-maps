@@ -27,7 +27,7 @@ interface GPXDrawerProps {
   onPreviewIndexChange?: (index: number) => void;
   previewIndex?: number;
   onOpened?: () => void;
-  minimizeSignal?: number; // change value to request minimize-to-peek
+  minimizeSignal?: number;
   onStartFollowingTrack?: () => void;
   onClearRoute?: () => void;
   onStopNavigation?: () => void;
@@ -36,8 +36,8 @@ interface GPXDrawerProps {
 }
 
 const { height: screenHeight } = Dimensions.get("window");
-const DRAWER_HEIGHT = screenHeight * 0.52; // smaller drawer to reveal more map
-const PEEK_HEIGHT = 350; // slightly smaller peek height
+const DRAWER_HEIGHT = screenHeight * 0.52;
+const PEEK_HEIGHT = 350;
 
 export default function GPXDrawer({
   visible,
@@ -53,13 +53,11 @@ export default function GPXDrawer({
   onClearRoute,
   onStopNavigation,
 }: GPXDrawerProps) {
-  // Follow RouteDrawer pattern: 0 = expanded, DRAWER_HEIGHT = hidden
   const translateY = useRef(new Animated.Value(DRAWER_HEIGHT)).current;
   const [isExpanded, setIsExpanded] = React.useState(true);
   const [navigatingToStart, setNavigatingToStart] = useState(false);
   const [arrived, setArrived] = useState(false);
 
-  // Distance utils
   const getDistanceMeters = (
     a: { latitude: number; longitude: number },
     b: { latitude: number; longitude: number }
@@ -93,7 +91,6 @@ export default function GPXDrawer({
   };
 
   const estimatedDurationSec = useMemo(() => {
-    // approx walking 5km/h => 1.388 m/s
     return totalDistance / 1.388;
   }, [totalDistance]);
 
@@ -107,7 +104,6 @@ export default function GPXDrawer({
 
   useEffect(() => {
     if (visible) {
-      // show at expanded by default
       setIsExpanded(true);
       Animated.spring(translateY, {
         toValue: 0,
@@ -124,7 +120,6 @@ export default function GPXDrawer({
     }
   }, [visible]);
 
-  // External minimize request (map panned or other)
   useEffect(() => {
     if (!visible) return;
     if (typeof minimizeSignal === "number") {
@@ -155,7 +150,6 @@ export default function GPXDrawer({
         gestureState.dy < -50 || gestureState.vy < -velocityThreshold;
       const PEEK_TRANSLATE = DRAWER_HEIGHT - PEEK_HEIGHT;
       if (swipeDown) {
-        // Minimize to peek instead of closing
         setIsExpanded(false);
         Animated.spring(translateY, {
           toValue: PEEK_TRANSLATE,
@@ -172,7 +166,6 @@ export default function GPXDrawer({
           bounciness: 8,
         }).start();
       } else {
-        // Snap to nearest state based on current position
         translateY.stopAnimation((val: number) => {
           const snapToExpanded = val < PEEK_TRANSLATE / 2;
           setIsExpanded(snapToExpanded);
@@ -186,7 +179,6 @@ export default function GPXDrawer({
     },
   });
 
-  // Build a downsampled index map for the slider and sparkline to keep it smooth
   const MAX_SLIDER_POINTS = 1000;
   const originalIndexMap = useMemo(() => {
     if (!track || track.length === 0) return [] as number[];
@@ -199,11 +191,9 @@ export default function GPXDrawer({
   }, [track]);
 
 
-  // Arrival detection: when navigatingToStart is true, watch userLocation
-  // and mark arrived when within ARRIVAL_THRESHOLD meters of the start point.
   useEffect(() => {
     if (!navigatingToStart || !userLocation || !track || track.length === 0) return;
-    const ARRIVAL_THRESHOLD = 25; // meters
+    const ARRIVAL_THRESHOLD = 25;
     const startPoint = track[0];
     if (!startPoint || typeof startPoint.latitude !== "number" || typeof startPoint.longitude !== "number") return;
     const dist = getDistanceMeters(userLocation, startPoint);
@@ -213,7 +203,6 @@ export default function GPXDrawer({
     }
   }, [navigatingToStart, userLocation, track]);
 
-  // Elevation sparkline data (downsampled to the same index map)
   const hasElevation = useMemo(
     () =>
       track &&
@@ -240,14 +229,13 @@ export default function GPXDrawer({
   );
   const sparkHeight = 36;
   const sparkPadding = 4;
-  const sparkWidth = Dimensions.get("window").width - 32; // paddingHorizontal 16
+  const sparkWidth = Dimensions.get("window").width - 32;
   const sparkPoints = useMemo(() => {
     if (!elevationSeries.length || elevationMax === elevationMin) return "";
     const n = elevationSeries.length;
     const dx = sparkWidth / Math.max(1, n - 1);
     const scaleY = (val: number) => {
       const t = (val - elevationMin) / (elevationMax - elevationMin);
-      // invert Y for svg (0 at top)
       return sparkPadding + (1 - t) * (sparkHeight - 2 * sparkPadding);
     };
     const pts: string[] = [];
@@ -282,7 +270,6 @@ export default function GPXDrawer({
         <TouchableOpacity
           onPress={() => {
             Vibration.vibrate(50);
-            // clear any temporary navigation route when closing
             if (onClearRoute) onClearRoute();
             onClose();
           }}
@@ -374,7 +361,7 @@ export default function GPXDrawer({
       {hasElevation && (
             <View style={styles.elevationContainer}>
               <Svg width={sparkWidth} height={sparkHeight}>
-        {/* sparkline only - no preview marker */}
+        {}
 
                 <Line
                   x1={0}
@@ -386,14 +373,14 @@ export default function GPXDrawer({
                 />
                 {sparkPoints ? (
                   <>
-                    {/* zone bleue sous la courbe */}
+                    {}
                     <Polygon
                       points={`${sparkPoints} ${sparkWidth},${
                         sparkHeight - sparkPadding
                       } 0,${sparkHeight - sparkPadding}`}
                       fill="rgba(0,122,255,0.2)"
                     />
-                    {/* courbe */}
+                    {}
                     <Polyline
                       points={sparkPoints}
                       fill="none"
@@ -405,7 +392,7 @@ export default function GPXDrawer({
               </Svg>
             </View>
           )}
-          {/* slider and preview removed */}
+          {}
         </View>
       </View>
     </Animated.View>
@@ -508,3 +495,4 @@ const styles = StyleSheet.create({
   arrivalButton: { backgroundColor: "#007AFF", paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8 },
   arrivalButtonText: { color: "#FFF", fontWeight: "700" },
 });
+

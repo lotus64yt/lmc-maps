@@ -20,7 +20,6 @@ import { NavigationStep } from "../types/RouteTypes";
 import { useLocationService } from "@/services/LocationService";
 import UserLocationMarker from "./UserLocationMarker";
 import NavigationArrow from "./ArrowSVG";
-// Use local Mapbox style JSON instead of remote styleURL
 import libertyStyle from "../assets/styles/liberty.json";
 
 interface Coordinate {
@@ -105,8 +104,6 @@ export default function MapContainer({
   alternativeRoutes = [],
   selectedAlternativeIndex = 0,
 }: MapContainerProps) {
-  // ...existing code...
-  // Utiliser le contexte MapView
   const {
     mapRef,
     centerCoordinate,
@@ -120,14 +117,9 @@ export default function MapContainer({
 
   const { heading } = useLocationService();
 
-  // Debug: tracer les changements de routeCoords
   useEffect(() => {
-    console.log('[MAP] 📍 RouteCoords mis à jour:', routeCoords.length, 'points');
     if (routeCoords.length > 0) {
-      console.log('[MAP] Premiers points de la nouvelle route:', routeCoords.slice(0, 3));
-      console.log('[MAP] ✅ NOUVEAU CHEMIN DEVRAIT ÊTRE AFFICHÉ SUR LA CARTE');
     } else {
-      console.log('[MAP] ❌ Aucune coordonnée de route - chemin vidé');
     }
   }, [routeCoords]);
 
@@ -149,13 +141,10 @@ export default function MapContainer({
   const touchMovedRef = useRef(false);
   const [useOverlayMarker, setUseOverlayMarker] = useState(false);
 
-  // Debug log pour le heading
   useEffect(() => {
-    // Log user marker state for debugging
     try {
       const rotation = getArrowRotation();
     } catch (e) {
-      // ignore
     }
   }, [
     heading,
@@ -166,14 +155,13 @@ export default function MapContainer({
     routeDirection,
   ]);
 
-  // Fonction utilitaire pour calculer la distance entre deux points
   const calculateDistance = (
     lat1: number,
     lon1: number,
     lat2: number,
     lon2: number
   ) => {
-    const R = 6371e3; // Rayon de la Terre en mètres
+    const R = 6371e3;
     const φ1 = (lat1 * Math.PI) / 180;
     const φ2 = (lat2 * Math.PI) / 180;
     const Δφ = ((lat2 - lat1) * Math.PI) / 180;
@@ -184,10 +172,9 @@ export default function MapContainer({
       Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-    return R * c; // Distance en mètres
+    return R * c;
   };
 
-  // Calculate bearing (degrees) from point A to point B (lat/lon in degrees)
   const calculateBearing = (
     lat1: number,
     lon1: number,
@@ -206,7 +193,6 @@ export default function MapContainer({
     return θ;
   };
 
-  // Helpers to validate coordinates before rendering PointAnnotation
   const isValidCoordArray = (c: any): c is [number, number] => {
     return (
       Array.isArray(c) &&
@@ -230,35 +216,26 @@ export default function MapContainer({
     );
   };
 
-  // Fonction pour calculer le heading approprié pour la caméra
   const getCameraHeading = () => {
-    // Si un override est fourni depuis le composant parent (App), l'utiliser en priorité
     const normalizeAngle = (angle: number) => ((angle % 360) + 360) % 360;
     if (typeof mapHeadingOverride === "number" && !isNaN(mapHeadingOverride)) {
       return normalizeAngle(mapHeadingOverride);
     }
-    // Utiliser la même logique de mélange que pour la flèche, mais moins agressive
     const isOnRoute = routeDirection && routeDirection.isOnRoute;
 
-    // Facteurs de mélange pour la caméra (plus conservateurs que la flèche) :
-    // - Navigation + sur route : 80% direction, 20% boussole (précision mais pas trop brusque)
-    // - Navigation + hors route : 50% direction, 50% boussole
-    // - Mode normal : 100% boussole (pas de rotation automatique)
 
     let directionWeight = 0;
 
     if (isNavigating && isOnRoute && compassMode === "heading") {
-      directionWeight = 0.8; // Navigation précise mais smooth
+      directionWeight = 0.8;
     } else if (isNavigating && routeDirection && compassMode === "heading") {
-      directionWeight = 0.5; // Navigation hors route, mélange équilibré
+      directionWeight = 0.5;
     } else {
-      directionWeight = 0.0; // Mode normal ou nord : pas de rotation automatique
+      directionWeight = 0.0;
     }
 
     if (directionWeight === 0) {
-      // Mode boussole standard
       if (compassMode === "heading") {
-        // Preferer le heading défini par le contexte (setCameraConfig/updateMapHeading)
         if (typeof mapHeading === "number" && !isNaN(mapHeading)) {
           return mapHeading;
         }
@@ -269,7 +246,6 @@ export default function MapContainer({
       }
     }
 
-    // Mélange direction + boussole pour la caméra
     const directionAngle = routeDirection?.bearing || 0;
     const compassAngle =
       typeof mapHeading === "number" && !isNaN(mapHeading)
@@ -278,7 +254,6 @@ export default function MapContainer({
         ? heading
         : currentHeading || 0;
 
-    // Normaliser et calculer le mélange
     const normDirectionAngle = normalizeAngle(directionAngle);
     const normCompassAngle = normalizeAngle(compassAngle);
 
@@ -291,95 +266,66 @@ export default function MapContainer({
     return normalizeAngle(finalAngle);
   };
 
-  // Fonction pour calculer la rotation appropriée de la flèche utilisateur
   const getArrowRotation = (): string => {
-    // Déterminer l'intensité du mélange direction/boussole
     const isOnRoute = routeDirection && routeDirection.isOnRoute;
 
-    // Facteurs de mélange :
-    // - Navigation + sur route : 100% direction de déplacement (précision maximale)
-    // - Navigation + hors route : 70% direction, 30% boussole (guidage vers la route)
-    // - Mode normal + direction disponible : 40% direction, 60% boussole (économie ressources)
-    // - Mode normal sans direction : 100% boussole
 
-    let directionWeight = 0; // Poids de la direction de déplacement (0-1)
+    let directionWeight = 0;
 
     if (isNavigating && isOnRoute) {
-      // Navigation précise : priorité totale à la direction
       directionWeight = 1.0;
     } else if (isNavigating && routeDirection) {
-      // Navigation hors route : mélange pour guider vers la route
       directionWeight = 0.7;
     } else if (routeDirection && routeDirection.isOnRoute) {
-      // Mode normal avec direction : mélange économique
       directionWeight = 0.4;
     } else {
-      // Pas de direction disponible : boussole uniquement
       directionWeight = 0.0;
     }
 
-    // Calculer l'angle de direction de déplacement
     let directionAngle = 0;
     if (routeDirection && directionWeight > 0) {
       directionAngle = routeDirection.bearing;
     }
 
-    // Calculer l'angle de la boussole actuel (sans animation pour simplifier)
     let compassAngle = currentHeading || 0;
 
-    // Calculer l'angle final avec mélange
     let finalAngle = compassAngle;
 
     if (directionWeight > 0 && routeDirection) {
-      // Mélange : interpolation entre direction et boussole
-      // Normaliser les angles pour éviter les problèmes de 360°/0°
       const normalizeAngle = (angle: number) => ((angle % 360) + 360) % 360;
 
       const normDirectionAngle = normalizeAngle(directionAngle);
       const normCompassAngle = normalizeAngle(compassAngle);
 
-      // Calculer la différence angulaire pour choisir le chemin le plus court
       let angleDiff = normDirectionAngle - normCompassAngle;
       if (angleDiff > 180) angleDiff -= 360;
       if (angleDiff < -180) angleDiff += 360;
 
-      // Angle final mélangé
       finalAngle = normCompassAngle + angleDiff * directionWeight;
       finalAngle = normalizeAngle(finalAngle);
     }
 
-    // Toujours retourner une string pour la cohérence
     return `${finalAngle}deg`;
   };
 
-  // Fonction pour gérer les changements de la caméra
   const onCameraChanged = (state) => {
     setMapBearing(state.properties.bearing || 0);
     setPitch(state.properties.pitch || 0);
   };
 
-  // Handler pour quand la map est prête
   const handleMapReady = () => {
-    // Small delay to avoid Android race where native MapView tries to resolve
-    // React view tags before the RN views have been attached. This prevents
-    // errors like: "ViewTagResolver | view: null found with tag: XX"
-    // A short timeout or requestAnimationFrame gives RN time to attach child
-    // views used by annotations (PointAnnotation) before native lookup.
     setTimeout(() => {
       setIsMapReady(true);
-      // Notifier le contexte que la Map native est prête pour vider la file d'attente
       try {
         if (notifyMapReady) notifyMapReady();
       } catch (e) {
-        // Ignorer les erreurs ici - le flush est best-effort
       }
     }, 50);
   };
 
-  // Charger la dernière position depuis AsyncStorage au montage
   useEffect(() => {
     const loadLastPosition = async () => {
-      if (hasInitialized) return; // Éviter la réinitialisation multiple
+      if (hasInitialized) return;
 
       const savedMapState = await MapStorageService.loadLastMapPosition();
       const initialCoords =
@@ -387,7 +333,6 @@ export default function MapContainer({
       setInitialCenter(initialCoords);
       setInitialZoom(savedMapState.zoomLevel);
 
-      // Initialiser le contexte avec la position sauvegardée
       setCameraConfig({
         centerCoordinate: initialCoords,
         zoomLevel: savedMapState.zoomLevel,
@@ -399,10 +344,8 @@ export default function MapContainer({
     loadLastPosition();
   }, [setCameraConfig, hasInitialized]);
 
-  // Zoomer sur la position utilisateur quand elle devient disponible
   useEffect(() => {
     if (location && !hasZoomedToUser && initialCenter) {
-      // Sauvegarder la nouvelle position de l'utilisateur
       MapStorageService.saveMapPosition(
         location.latitude,
         location.longitude,
@@ -412,16 +355,13 @@ export default function MapContainer({
     }
   }, [location, hasZoomedToUser, initialCenter]);
 
-  // Effet pour gérer la caméra en mode navigation (optimisé pour éviter les boucles)
   useEffect(() => {
     if (!location || !isMapReady) return;
 
     const now = Date.now();
-    // Rendre la caméra plus réactive en navigation
-    const MIN_UPDATE_INTERVAL = isNavigating ? 300 : 1000; // ms
-    const MIN_DISTANCE_THRESHOLD = isNavigating ? 1 : 5; // mètres
+    const MIN_UPDATE_INTERVAL = isNavigating ? 300 : 1000;
+    const MIN_DISTANCE_THRESHOLD = isNavigating ? 1 : 5;
 
-    // Vérifier si assez de temps s'est écoulé
     if (
       lastCameraUpdateRef.current &&
       now - lastCameraUpdateRef.current.timestamp < MIN_UPDATE_INTERVAL
@@ -429,7 +369,6 @@ export default function MapContainer({
       return;
     }
 
-    // Vérifier si l'utilisateur s'est suffisamment déplacé
     if (lastCameraUpdateRef.current) {
       const distance = calculateDistance(
         lastCameraUpdateRef.current.latitude,
@@ -439,14 +378,11 @@ export default function MapContainer({
       );
 
       if (distance < MIN_DISTANCE_THRESHOLD && !isNavigating) {
-        return; // Pas assez de mouvement et pas en navigation
+        return;
       }
     }
 
     if (isNavigating) {
-      // En navigation : zoom proche et suivi automatique
-      // Only update center here. Navigation camera (useMapControls.adjustNavigationCamera)
-      // is responsible for zoom/pitch/heading to avoid conflicting writers and zoom jank.
       setCameraConfig({
         centerCoordinate: [location.longitude, location.latitude],
         animationDuration: 300,
@@ -456,10 +392,8 @@ export default function MapContainer({
         longitude: location.longitude,
         timestamp: now,
       };
-      // Prefer overlay marker while navigating unless user has manually moved the map
       if (!touchMovedRef.current) setUseOverlayMarker(true);
     } else if (!hasZoomedToUser) {
-      // Première fois : zoom modéré sur la position utilisateur
       setCameraConfig({
         centerCoordinate: [location.longitude, location.latitude],
         zoomLevel: 16,
@@ -471,26 +405,20 @@ export default function MapContainer({
         timestamp: now,
       };
     }
-    // Pas de lastCameraUpdateRef dans les dépendances car c'est un ref
-    // Pas de setCameraConfig car c'est une fonction stable du contexte
   }, [isNavigating, location, isMapReady, hasZoomedToUser]);
 
-  // Ensure overlay marker is enabled when navigation starts (unless user recently panned)
   useEffect(() => {
     if (isNavigating && isMapReady && location && !touchMovedRef.current) {
       setUseOverlayMarker(true);
     }
   }, [isNavigating, isMapReady, location]);
 
-  // Gérer les changements de région de la carte
   const handleRegionDidChange = async (feature: any) => {
     if (feature && feature.geometry && feature.geometry.coordinates) {
       const [longitude, latitude] = feature.geometry.coordinates;
-      // Sauvegarder la nouvelle position
       await MapStorageService.saveMapPosition(latitude, longitude, 15);
     }
   };
-  // Créer les données GeoJSON pour la route
   const routeGeoJSON = {
     type: "Feature" as const,
     properties: {},
@@ -503,7 +431,6 @@ export default function MapContainer({
     },
   };
 
-  // Créer les données GeoJSON pour la ligne à vol d'oiseau (utilise directLineCoords si disponible)
   const directLineGeoJSON =
     hasDirectLineSegment && directLineCoords.length >= 2
       ? {
@@ -531,11 +458,9 @@ export default function MapContainer({
           },
         }
       : null;
-  // Debug log pour voir les données hybrides
   if (hasDirectLineSegment || (isNavigating && navigationMode === "walking")) {
   }
 
-  // Créer les données GeoJSON pour la progression de la route
   const completedRouteGeoJSON =
     isNavigating && completedRouteCoords.length > 1
       ? {
@@ -566,7 +491,6 @@ export default function MapContainer({
         }
       : null;
 
-  // Créer les données GeoJSON pour les intersections (seulement virages serrés)
   const intersectionsGeoJSON = {
     type: "FeatureCollection" as const,
     features: detectSharpTurnsInRoute(routeCoords).map((turn, index) => ({
@@ -586,8 +510,6 @@ export default function MapContainer({
     })),
   };
 
-  // Générer des IDs uniques pour les sources pour éviter les conflits Mapbox
-  // Use a stable instance id so source/layer ids do not change across renders
   const instanceIdRef = useRef<string | null>(null);
   if (instanceIdRef.current === null) instanceIdRef.current = `${Date.now()}`;
   const instanceId = instanceIdRef.current;
@@ -595,7 +517,6 @@ export default function MapContainer({
   const directLineSourceId = `direct-line-source-${instanceId}`;
   const intersectionsSourceId = `intersections-source-${instanceId}`;
 
-  // Fonction pour détecter les virages serrés dans la route
   function detectSharpTurnsInRoute(
     coordinates: Coordinate[]
   ): Array<{ coordinate: Coordinate; angle: number }> {
@@ -606,7 +527,6 @@ export default function MapContainer({
       const curr = coordinates[i];
       const next = coordinates[i + 1];
 
-      // Calculer les vecteurs
       const vec1 = {
         x: curr.longitude - prev.longitude,
         y: curr.latitude - prev.latitude,
@@ -616,7 +536,6 @@ export default function MapContainer({
         y: next.latitude - curr.latitude,
       };
 
-      // Calculer l'angle entre les vecteurs
       const dot = vec1.x * vec2.x + vec1.y * vec2.y;
       const mag1 = Math.sqrt(vec1.x * vec1.x + vec1.y * vec1.y);
       const mag2 = Math.sqrt(vec2.x * vec2.x + vec2.y * vec2.y);
@@ -625,7 +544,6 @@ export default function MapContainer({
         const angle = Math.acos(Math.max(-1, Math.min(1, dot / (mag1 * mag2))));
         const angleDegrees = (angle * 180) / Math.PI;
 
-        // Si l'angle est >= 90 degrés, c'est un virage serré
         if (angleDegrees >= 90) {
           sharpTurns.push({
             coordinate: curr,
@@ -638,10 +556,7 @@ export default function MapContainer({
     return sharpTurns;
   }
 
-  // Gestion du clic sur la carte pour ouvrir le RouteDrawer
   const handleMapPress = async (event: any) => {
-    // Mapbox events can come in several shapes depending on platform/version.
-    // Try a few common locations for coordinates.
     try {
       let coords: number[] | null = null;
 
@@ -669,7 +584,6 @@ export default function MapContainer({
         }
       }
 
-      // If we couldn't find coords in the event, fallback to map center if available
       if (
         !coords &&
         mapRef &&
@@ -679,30 +593,21 @@ export default function MapContainer({
         try {
           const center = await (mapRef as any).current.getCenter();
           if (Array.isArray(center) && center.length >= 2) {
-            coords = center as number[]; // [lon, lat]
+            coords = center as number[];
           }
         } catch (e) {
-          // ignore fallback failure
         }
       }
 
       if (coords && coords.length >= 2) {
         const [longitude, latitude] = coords;
-        console.debug("handleMapPress coords", longitude, latitude);
         onLongPress({ latitude, longitude });
         return;
       }
-
-      console.warn(
-        "handleMapPress: unable to determine coordinates from event",
-        event
-      );
     } catch (e) {
-      console.warn("handleMapPress error", e);
     }
   };
 
-  // Touch handlers to detect small taps that slightly move the map
   const handleTouchStart = (e: any) => {
     try {
       const ne = e?.nativeEvent;
@@ -710,10 +615,8 @@ export default function MapContainer({
         touchStartRef.current = { x: ne.pageX, y: ne.pageY };
         touchMovedRef.current = false;
       }
-      // also call external pan drag handler if provided
       if (onMapPanDrag) onMapPanDrag();
     } catch (err) {
-      // ignore
     }
   };
 
@@ -725,25 +628,20 @@ export default function MapContainer({
       const dy = Math.abs(ne.pageY - touchStartRef.current.y);
       if (dx > 6 || dy > 6) {
         touchMovedRef.current = true;
-        // User moved the map: switch back to map-layer marker
         if (useOverlayMarker) setUseOverlayMarker(false);
       }
     } catch (err) {
-      // ignore
     }
   };
 
   const handleTouchEnd = async (e: any) => {
     try {
-      // If touch did not move beyond threshold, consider it a tap
       if (!touchMovedRef.current) {
-        // Try to extract coords from event first
         if (e?.nativeEvent?.coordinates) {
           await handleMapPress(e);
           return;
         }
 
-        // Fallback to center coordinate
         if (
           mapRef &&
           (mapRef as any).current &&
@@ -759,20 +657,13 @@ export default function MapContainer({
         return;
       }
 
-      // If the touch DID move (user panned), ensure overlay marker is disabled
       if (touchMovedRef.current && useOverlayMarker) {
         setUseOverlayMarker(false);
       }
     } catch (err) {
-      // ignore
     }
   };
 
-  // Effet pour ajuster la caméra selon le mode boussole
-  // useEffect(() => {
-  //   if (location) {
-  //   }
-  // }, [compassMode, currentHeading, location]);
 
   return (
     <View style={styles.container}>
@@ -781,7 +672,6 @@ export default function MapContainer({
           ref={mapRef}
           style={styles.map}
           styleJSON={JSON.stringify(libertyStyle)}
-          // Use onLongPress for location selection; also attach onPress to cover platform differences
           onLongPress={handleMapPress}
           onPress={handleMapPress}
           onTouchStart={(e) => {
@@ -799,7 +689,6 @@ export default function MapContainer({
           compassEnabled={false}
           scaleBarEnabled={false}
         >
-          {/* Composant Camera pour contrôler la position et le zoom */}
           {isMapReady && (
             <Camera
               centerCoordinate={centerCoordinate || initialCenter}
@@ -810,35 +699,33 @@ export default function MapContainer({
             />
           )}
 
-          {/* ==================== ROUTES (RENDU EN PREMIER - DESSOUS) ==================== */}
-
-          {/* Affichage de la route avec progression en navigation ou route normale */}
           {isMapReady &&
-          isNavigating &&
-          (completedRouteGeoJSON || remainingRouteGeoJSON) ? (
-            <>
-              {remainingRouteGeoJSON && (
-                <ShapeSource
-                  id={`remaining-route-${instanceId}`}
-                  shape={remainingRouteGeoJSON}
-                >
-                  <LineLayer
-                    id={`remaining-route-layer-${instanceId}`}
-                    style={{
-                      lineColor: "#007AFF", // Bleu pour la route restante
-                      lineWidth: 4,
-                      lineCap: "round",
-                      lineJoin: "round",
-                    }}
-                  />
-                </ShapeSource>
-              )}
-            </>
-          ) : (
-            /* Route normale (quand pas en navigation ou pas de données de progression) */
-            isMapReady &&
-            (alternativeRoutes && alternativeRoutes.length > 0 ? (
-              // Render each alternative route
+            isNavigating &&
+            (completedRouteGeoJSON || remainingRouteGeoJSON) && (
+              <>
+                {remainingRouteGeoJSON && (
+                  <ShapeSource
+                    id={`remaining-route-${instanceId}`}
+                    shape={remainingRouteGeoJSON}
+                  >
+                    <LineLayer
+                      id={`remaining-route-layer-${instanceId}`}
+                      style={{
+                        lineColor: "#007AFF",
+                        lineWidth: 4,
+                        lineCap: "round",
+                        lineJoin: "round",
+                      }}
+                    />
+                  </ShapeSource>
+                )}
+              </>
+            )}
+
+          {isMapReady &&
+            !isNavigating &&
+            alternativeRoutes &&
+            alternativeRoutes.length > 0 && (
               <>
                 {alternativeRoutes.map((alt, idx) => {
                   if (!alt || !alt.coords || alt.coords.length === 0)
@@ -875,25 +762,25 @@ export default function MapContainer({
                   );
                 })}
               </>
-            ) : (
-              isMapReady &&
-              routeCoords.length > 0 && (
-                <ShapeSource id={routeSourceId} shape={routeGeoJSON}>
-                  <LineLayer
-                    id={`route-layer-${instanceId}`}
-                    style={{
-                      lineColor: "#007AFF",
-                      lineWidth: 4,
-                      lineCap: "round",
-                      lineJoin: "round",
-                    }}
-                  />
-                </ShapeSource>
-              )
-            ))
-          )}
+            )}
 
-          {/* Ligne à vol d'oiseau (en plus de la route normale si besoin) */}
+          {isMapReady &&
+            !isNavigating &&
+            (!alternativeRoutes || alternativeRoutes.length === 0) &&
+            routeCoords.length > 0 && (
+              <ShapeSource id={routeSourceId} shape={routeGeoJSON}>
+                <LineLayer
+                  id={`route-layer-${instanceId}`}
+                  style={{
+                    lineColor: "#007AFF",
+                    lineWidth: 4,
+                    lineCap: "round",
+                    lineJoin: "round",
+                  }}
+                />
+              </ShapeSource>
+            )}
+
           {isMapReady && directLineGeoJSON && (
             <ShapeSource id={directLineSourceId} shape={directLineGeoJSON}>
               <LineLayer
@@ -910,12 +797,8 @@ export default function MapContainer({
             </ShapeSource>
           )}
 
-          {/* ==================== MARQUEURS UTILISATEUR (RENDU AU-DESSUS) ==================== */}
-
-          {/* Marqueur de position utilisateur (ShapeSource + cercles d'accuracy) */}
           {isMapReady && location && (
             <>
-              {/* Source de données pour le marqueur utilisateur (cercles seulement) */}
               <ShapeSource
                 id="user-location-source"
                 shape={{
@@ -942,7 +825,6 @@ export default function MapContainer({
                   }}
                 />
 
-                {/* Afficher le cercle bleu seulement si on n'utilise pas UserLocationMarker */}
                 {useOverlayMarker && (
                   <CircleLayer
                     id="user-location-dot"
@@ -968,8 +850,6 @@ export default function MapContainer({
               </View>
             </PointAnnotation>
           )}
-
-          {/* Point de location sélectionné */}
           {isMapReady &&
             showLocationPoint &&
             isValidCoordObj(selectedLocationCoordinate) && (
@@ -985,8 +865,6 @@ export default function MapContainer({
                 </View>
               </PointAnnotation>
             )}
-
-          {/* -------------------- USER ARROW (RENDER LAST TO BE ON TOP) -------------------- */}
           {isMapReady &&
             location &&
             isFinite(location.longitude) &&
@@ -1005,8 +883,6 @@ export default function MapContainer({
                 />
               </PointAnnotation>
             )}
-
-          {/* Aperçu GPX: flèche transparente à la position du slider */}
           {isMapReady && isValidCoordObj(previewMarkerCoordinate) && (
             <PointAnnotation
               id="gpx-preview-arrow"
@@ -1027,8 +903,6 @@ export default function MapContainer({
               </View>
             </PointAnnotation>
           )}
-
-          {/* Parking sélectionné */}
           {isMapReady &&
             selectedParking &&
             isValidCoordObj(selectedParking.coordinate) && (
@@ -1048,8 +922,6 @@ export default function MapContainer({
                 </View>
               </PointAnnotation>
             )}
-
-          {/* Marqueurs POI */}
           {isMapReady &&
             pois
               .filter(
@@ -1075,7 +947,7 @@ export default function MapContainer({
                 </PointAnnotation>
               ))}
 
-          {/* Marqueur dédié pour le POI sélectionné (surdimensionné et visible au-dessus) */}
+          {}
           {isMapReady &&
             selectedPOI &&
             selectedPOI.lat != null &&
@@ -1090,7 +962,7 @@ export default function MapContainer({
               </PointAnnotation>
             )}
 
-          {/* Intersections et étapes de navigation */}
+          {}
           {isMapReady && intersectionsGeoJSON.features.length > 0 && (
             <ShapeSource
               id={intersectionsSourceId}
@@ -1111,8 +983,8 @@ export default function MapContainer({
                       10,
                     ],
                     ["==", ["get", "type"], "sharp-turn"],
-                    6, // Plus petit pour les virages
-                    8, // Défaut
+                    6,
+                    8,
                   ],
                   circleColor: [
                     "case",
@@ -1120,37 +992,33 @@ export default function MapContainer({
                     [
                       "case",
                       ["get", "isCurrent"],
-                      "#FF3B30", // Rouge pour l'étape actuelle
+                      "#FF3B30",
                       ["get", "isCompleted"],
-                      "#34C759", // Vert pour les étapes complétées
-                      "#007AFF", // Bleu pour les étapes futures
+                      "#34C759",
+                      "#007AFF",
                     ],
                     ["==", ["get", "type"], "sharp-turn"],
-                    "#FF9500", // Orange pour les virages serrés
-                    "#007AFF", // Défaut
+                    "#FF9500",
+                    "#007AFF",
                   ],
                   circleStrokeColor: "#FFFFFF",
                   circleStrokeWidth: 2,
                   circleOpacity: [
                     "case",
                     ["==", ["get", "type"], "sharp-turn"],
-                    0.7, // Moins opaque pour les virages
-                    0.9, // Pleine opacité pour les étapes
+                    0.7,
+                    0.9,
                   ],
                 }}
               />
             </ShapeSource>
           )}
-
-          {/* Affichage des instructions aux intersections et virages */}
           {isMapReady &&
             isNavigating &&
             navigationSteps.map((step, index) => {
-              // Ne pas rendre les étapes déjà effectuées
               if (index < currentStepIndex) return null;
 
-              // Calculer l'orientation de la flèche : vers la prochaine étape si disponible
-              const coord = step.coordinates as [number, number]; // [lon, lat]
+              const coord = step.coordinates as [number, number];
               if (!isValidCoordArray(coord)) return null;
               const nextCoord =
                 navigationSteps[index + 1]?.coordinates ||
@@ -1159,7 +1027,6 @@ export default function MapContainer({
                   : null);
               let bearing = 0;
               if (nextCoord) {
-                // calculateBearing(lat1, lon1, lat2, lon2)
                 if (isValidCoordArray(nextCoord)) {
                   bearing = calculateBearing(
                     coord[1],
@@ -1188,7 +1055,6 @@ export default function MapContainer({
                       index === currentStepIndex && styles.currentStepWrapper,
                     ]}
                   >
-                    {/* Arrow marker rotated to follow the path */}
                     <View
                       collapsable={false}
                       style={{
@@ -1219,8 +1085,6 @@ export default function MapContainer({
                         />
                       </View>
                     </View>
-
-                    {/* Instruction visible uniquement pour l'étape actuelle */}
                     {index === currentStepIndex && (
                       <View style={styles.instructionBubble}>
                         <Text style={styles.instructionText} numberOfLines={2}>
@@ -1232,8 +1096,6 @@ export default function MapContainer({
                 </PointAnnotation>
               );
             })}
-
-          {/* Affichage des virages serrés sur la route */}
           {isMapReady &&
             !isNavigating &&
             routeCoords.length > 0 &&
@@ -1274,12 +1136,12 @@ const styles = StyleSheet.create({
     height: 34,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.8)", // Fond plus opaque
+    backgroundColor: "rgba(0, 0, 0, 0.8)",
     borderRadius: 17,
     borderWidth: 2,
-    borderColor: "#FFFFFF", // Bordure blanche plus visible
-    elevation: 8, // Android
-    shadowColor: "#000", // iOS
+    borderColor: "#FFFFFF",
+    elevation: 8,
+    shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 4,
@@ -1294,8 +1156,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#007AFF",
     justifyContent: "center",
     alignItems: "center",
-    elevation: 3, // Android
-    shadowColor: "#000", // iOS
+    elevation: 3,
+    shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 2,
@@ -1325,7 +1187,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
-    // Améliorer la visibilité de la flèche
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.5)",
   },
@@ -1448,7 +1309,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   currentStepWrapper: {
-    // Effet visuel pour l'étape actuelle
     transform: [{ scale: 1.2 }],
     shadowColor: "#000",
     shadowOffset: {
@@ -1472,3 +1332,4 @@ const styles = StyleSheet.create({
     pointerEvents: "none",
   },
 });
+

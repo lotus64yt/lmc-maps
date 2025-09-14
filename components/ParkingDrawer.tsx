@@ -56,7 +56,6 @@ export default function ParkingDrawer({
   const footerTranslateY = useRef(new Animated.Value(180)).current;
   const footerScale = useRef(new Animated.Value(1)).current;
 
-  // Rechercher des parkings
   const searchParkings = async (location: Coordinate) => {
     setLoading(true);
     setError(null);
@@ -75,21 +74,16 @@ export default function ParkingDrawer({
         setError("Aucun parking trouvé dans cette zone");
       }
     } catch (err: any) {
-      console.error("Erreur recherche parkings:", err);
       setError(err.message || "Erreur lors de la recherche de parkings");
     } finally {
       setLoading(false);
     }
   };
 
-  // Sélectionner un parking
   const handleParkingSelect = (parking: ParkingSpot) => {
     Vibration.vibrate(50);
-    // Toggle selection when tapping the already selected parking
     if (selectedParking && selectedParking.id === parking.id) {
-      // Deselect
       setSelectedParking(null);
-      // do not call onParkingSelect on deselect
       return;
     }
 
@@ -97,7 +91,6 @@ export default function ParkingDrawer({
     onParkingSelect(parking);
   };
 
-  // Naviguer vers un parking
   const handleNavigateToParking = async (useExactSpot: boolean = false) => {
     if (!selectedParking || !onNavigateToParking) return;
 
@@ -117,20 +110,17 @@ export default function ParkingDrawer({
         onNavigateToParking(selectedParking, false);
       }
     } catch (error) {
-      console.error("Erreur navigation parking:", error);
       setSearchingExactSpot(false);
       onNavigateToParking(selectedParking, false);
     }
   };
 
-  // Rechercher quand la localisation change
   useEffect(() => {
     if (visible && searchLocation) {
       searchParkings(searchLocation);
     }
   }, [visible, searchLocation]);
 
-  // Animation
   useEffect(() => {
     if (visible) {
       Animated.spring(translateY, {
@@ -144,16 +134,13 @@ export default function ParkingDrawer({
         toValue: screenHeight,
         useNativeDriver: true,
       }).start();
-      // hide footer when drawer closes
       setSelectedParking(null);
       footerTranslateY.setValue(180);
     }
   }, [visible]);
 
-  // Footer animation on selectedParking change
   useEffect(() => {
     if (selectedParking) {
-      // Slide up + small bounce
       footerTranslateY.setValue(180);
       footerScale.setValue(0.98);
       Animated.parallel([
@@ -171,7 +158,6 @@ export default function ParkingDrawer({
         }),
       ]).start();
     } else {
-      // Slide down
       Animated.timing(footerTranslateY, {
         toValue: 180,
         duration: 180,
@@ -328,10 +314,10 @@ export default function ParkingDrawer({
           </View>
         )}
 
-  {/* Actions pour le parking sélectionné (moved to footer) */}
+  {}
       </ScrollView>
 
-      {/* Absolute footer with actions so buttons are always accessible */}
+      {}
       {selectedParking && (
         <Animated.View
           style={[
@@ -595,3 +581,4 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 });
+

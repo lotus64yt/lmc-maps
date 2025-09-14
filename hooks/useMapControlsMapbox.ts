@@ -11,39 +11,53 @@ export function useMapControls() {
 
   const recenterMap = async (location: Location.LocationObjectCoords) => {
     if (location && mapRef.current) {
-      // Activer le mode suivi automatique
       setIsFollowingUser(true);
-      
-      // TODO: Implémenter le centrage de caméra pour Mapbox}
+      const heading = compassMode === "heading" ? lastHeading.current : 0;
+      (mapRef.current as any)?.setCamera({
+        centerCoordinate: [location.longitude, location.latitude],
+        zoomLevel: 16,
+        heading,
+        animationDuration: 600,
+      });
+    }
   };
 
   const animateToCoordinate = useCallback((coordinate: { latitude: number; longitude: number }) => {
     if (mapRef.current) {
-      // TODO: Implémenter l'animation vers une coordonnée}
+      (mapRef.current as any)?.setCamera({
+        centerCoordinate: [coordinate.longitude, coordinate.latitude],
+        animationDuration: 600,
+      });
+    }
   }, []);
 
   const toggleCompassMode = () => {
     setCompassMode(prev => {
       const newMode = prev === "north" ? "heading" : "north";
-      
-      // TODO: Implémenter la rotation de cartereturn newMode;
+      const heading = newMode === "heading" ? lastHeading.current : 0;
+      (mapRef.current as any)?.setCamera({ heading, animationDuration: 0 });
+      return newMode;
     });
   };
 
   const updateMapHeading = useCallback((heading: number) => {
     if (mapRef.current && compassMode === "heading") {
       const now = Date.now();
-      if (now - lastUpdateTime.current > 500) { // Throttle à 500ms
+      if (now - lastUpdateTime.current > 500) {
         lastUpdateTime.current = now;
         lastHeading.current = heading;
-        
-        // TODO: Implémenter la rotation de la carte selon le heading}
+        (mapRef.current as any)?.setCamera({ heading, animationDuration: 200 });
+      }
     }
   }, [compassMode]);
 
   const followUserLocation = useCallback((location: Location.LocationObjectCoords) => {
     if (mapRef.current && isFollowingUser) {
-      // TODO: Implémenter le suivi de position}
+      (mapRef.current as any)?.setCamera({
+        centerCoordinate: [location.longitude, location.latitude],
+        animationDuration: 500,
+      });
+    }
   }, [isFollowingUser]);
 
   const handleMapPanDrag = () => {

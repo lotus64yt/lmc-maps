@@ -79,3 +79,4 @@ const styles = StyleSheet.create({
   primaryButton: { flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', marginTop: 16, backgroundColor: '#007AFF', paddingVertical: 12, borderRadius: 10 },
   primaryButtonText: { color: '#FFF', fontWeight: '700' },
 });
+

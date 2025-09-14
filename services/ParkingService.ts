@@ -1,4 +1,3 @@
-// Service pour récupérer les informations de parking à Paris
 export interface ParkingSpot {
   id: string;
   name: string;
@@ -37,7 +36,6 @@ class ParkingService {
     west: 2.2242
   };
 
-  // Vérifier si on est dans Paris (utilisé pour sources additionnelles)
   isInParis(latitude: number, longitude: number): boolean {
     return latitude >= this.PARIS_BOUNDS.south &&
            latitude <= this.PARIS_BOUNDS.north &&
@@ -45,7 +43,6 @@ class ParkingService {
            longitude <= this.PARIS_BOUNDS.east;
   }
 
-  // Rechercher des parkings à proximité
   async findNearbyParkings(
     latitude: number, 
     longitude: number, 
@@ -54,11 +51,9 @@ class ParkingService {
     const parkings: ParkingSpot[] = [];
 
     try {
-      // 1. Overpass API (global) - priorité primaire pour couverture mondiale
       const streetParkings = await this.fetchStreetParkingsOverpass(latitude, longitude, radiusKm);
       parkings.push(...streetParkings);
 
-      // 2. Sources spécifiques à Paris en complément (si applicable)
       if (this.isInParis(latitude, longitude)) {
         const parisData = await this.fetchParisOpenData(latitude, longitude, radiusKm);
         parkings.push(...parisData);
@@ -67,35 +62,30 @@ class ParkingService {
         parkings.push(...parkingListData);
       }
 
-      // Trier par distance
       const sortedParkings = parkings
         .map(parking => ({
           ...parking,
           distance: this.calculateDistance(latitude, longitude, parking.coordinate.latitude, parking.coordinate.longitude)
         }))
         .sort((a, b) => (a.distance || 0) - (b.distance || 0))
-        .slice(0, 50); // Limiter à 50 résultats
+        .slice(0, 50);
 
       return {
         parkings: sortedParkings,
         searchLocation: { latitude, longitude }
       };
     } catch (error) {
-      console.error('🅿️ Erreur lors de la recherche de parkings:', error);
       throw error;
     }
   }
 
-  // API Open Data Paris
   private async fetchParisOpenData(lat: number, lon: number, radius: number): Promise<ParkingSpot[]> {
     try {
-      // API des parkings de la ville de Paris
       const response = await fetch(
         `https://opendata.paris.fr/api/records/1.0/search/?dataset=stationnement-voie-publique-emplacements&geofilter.distance=${lat},${lon},${radius * 1000}&rows=50`
       );
 
       if (!response.ok) {
-        console.warn('🅿️ API Paris Open Data non disponible');
         return [];
       }
 
@@ -126,15 +116,12 @@ class ParkingService {
       }
 return parkings;
     } catch (error) {
-      console.error('🅿️ Erreur API Paris Open Data:', error);
       return [];
     }
   }
 
-  // API ParkingList (gratuite)
   private async fetchParkingListData(lat: number, lon: number, radius: number): Promise<ParkingSpot[]> {
     try {
-      // Simuler des données de parking depuis diverses sources
       const mockParkings: ParkingSpot[] = [
         {
           id: 'parking_rivoli',
@@ -174,23 +161,19 @@ return parkings;
         }
       ];
 
-      // Filtrer par distance
       const nearbyParkings = mockParkings.filter(parking => {
         const distance = this.calculateDistance(lat, lon, parking.coordinate.latitude, parking.coordinate.longitude);
         return distance <= radius;
       });
 return nearbyParkings;
     } catch (error) {
-      console.error('🅿️ Erreur données parking mock:', error);
       return [];
     }
   }
 
-  // Overpass API pour parkings de rue
   private async fetchStreetParkingsOverpass(lat: number, lon: number, radius: number): Promise<ParkingSpot[]> {
     try {
       const radiusMeters = Math.max(100, Math.round(radius * 1000));
-      // Try multiple Overpass endpoints for better reliability
       const endpoints = [
         'https://overpass-api.de/api/interpreter',
         'https://overpass.kumi.systems/api/interpreter',
@@ -231,7 +214,6 @@ return nearbyParkings;
       }
 
       if (!data) {
-        console.warn('🅿️ Overpass API non disponible:', lastError);
         return [];
       }
 
@@ -246,7 +228,6 @@ return nearbyParkings;
           } else if ((element.type === 'way' || element.type === 'relation') && element.center) {
             coordinate = { latitude: element.center.lat, longitude: element.center.lon };
           } else if (element.geometry && Array.isArray(element.geometry) && element.geometry.length > 0) {
-            // Fallback: compute centroid of geometry points
             const sum = element.geometry.reduce((acc: any, p: any) => {
               return { lat: acc.lat + p.lat, lon: acc.lon + p.lon };
             }, { lat: 0, lon: 0 });
@@ -274,20 +255,15 @@ return nearbyParkings;
 
       return parkings;
     } catch (error) {
-      console.error('🅿️ Erreur Overpass API:', error);
       return [];
     }
   }
 
-  // Obtenir des informations détaillées et position exacte d'une place libre
   async getExactParkingSpot(parking: ParkingSpot): Promise<ParkingSpot | null> {
 try {
-      // Simuler la recherche d'une place exacte
-      // En réalité, cela dépendrait de l'API du fournisseur de parking
       
       if (parking.provider === 'Q-Park' || parking.provider === 'Saemes') {
-        // Simuler une place exacte près de l'entrée
-        const offset = 0.0001; // ~10 mètres
+        const offset = 0.0001;
         const exactSpot = {
           ...parking,
           exactSpotCoordinate: {
@@ -298,17 +274,14 @@ try {
 return exactSpot;
       }
 
-      // Pour les parkings de rue, retourner les coordonnées d'entrée
       return parking;
     } catch (error) {
-      console.error('🅿️ Erreur recherche place exacte:', error);
       return parking;
     }
   }
 
-  // Calculer la distance entre deux points
   private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371e3; // Rayon de la Terre en mètres
+    const R = 6371e3;
     const φ1 = lat1 * Math.PI / 180;
     const φ2 = lat2 * Math.PI / 180;
     const Δφ = (lat2 - lat1) * Math.PI / 180;
@@ -322,7 +295,6 @@ return exactSpot;
     return R * c;
   }
 
-  // Formater la distance pour affichage
   formatDistance(distanceM: number): string {
     if (distanceM < 1000) {
       return `${Math.round(distanceM)} m`;
@@ -331,7 +303,6 @@ return exactSpot;
     }
   }
 
-  // Obtenir l'icône selon le type de parking
   getParkingIcon(type: string): string {
     switch (type) {
       case 'underground':
@@ -349,3 +320,4 @@ return exactSpot;
 }
 
 export default new ParkingService();
+

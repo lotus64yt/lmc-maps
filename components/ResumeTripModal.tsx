@@ -94,7 +94,7 @@ export default function ResumeTripModal({
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.selectContent}
                   >
-                    {/* animated sliding indicator inside the scroll content so it moves with items */}
+                    {}
                     <Animated.View
                       pointerEvents="none"
                       style={[
@@ -182,3 +182,4 @@ const styles = StyleSheet.create({
   cancelText: { color: '#333', fontWeight: '500', fontSize: 15 },
   goText: { color: 'white', fontWeight: '600', fontSize: 15 },
 });
+

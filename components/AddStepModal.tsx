@@ -126,3 +126,4 @@ const localStyles = StyleSheet.create({
   closeButton: { marginTop: 12, alignSelf: 'flex-end' },
   closeText: { color: '#007AFF', fontWeight: '600' },
 });
+

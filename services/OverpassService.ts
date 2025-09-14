@@ -27,9 +27,7 @@ export interface OverpassResponse {
 export class OverpassService {
   private static readonly BASE_URL = 'https://overpass-api.de/api/interpreter';
 
-  /**
-   * Recherche des POI dans un rayon donné autour d'un point
-   */
+  
   static async searchPOI(
     lat: number,
     lon: number,
@@ -75,7 +73,6 @@ export class OverpassService {
 
       const data: OverpassResponse = await response.json();
       
-      // Filtrer les POI avec des coordonnées valides et calculer la distance
       const poisWithDistance = data.elements
         .filter(poi => poi.lat != null && poi.lon != null && !isNaN(poi.lat) && !isNaN(poi.lon))
         .map(poi => ({
@@ -83,20 +80,16 @@ export class OverpassService {
         distance: this.calculateDistance(lat, lon, poi.lat, poi.lon)
       }));
 
-      // Trier par distance
       return poisWithDistance.sort((a, b) => (a.distance || 0) - (b.distance || 0));
 
     } catch (error) {
-      console.error('Erreur lors de la recherche Overpass:', error);
       throw error;
     }
   }
 
-  /**
-   * Calcule la distance entre deux points en mètres
-   */
+  
   private static calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371e3; // Rayon de la Terre en mètres
+    const R = 6371e3;
     const φ1 = lat1 * Math.PI / 180;
     const φ2 = lat2 * Math.PI / 180;
     const Δφ = (lat2 - lat1) * Math.PI / 180;
@@ -110,9 +103,7 @@ export class OverpassService {
     return R * c;
   }
 
-  /**
-   * Formatage du nom d'un POI
-   */
+  
   static formatPOIName(poi: OverpassPOI): string {
     if (poi.tags.name) {
       return poi.tags.name;
@@ -129,9 +120,7 @@ export class OverpassService {
     return poi.tags.amenity || 'POI sans nom';
   }
 
-  /**
-   * Formatage de l'adresse d'un POI
-   */
+  
   static formatPOIAddress(poi: OverpassPOI): string {
     const parts = [];
     
@@ -150,3 +139,4 @@ export class OverpassService {
     return parts.length > 0 ? parts.join(' ') : '';
   }
 }
+

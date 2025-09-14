@@ -38,13 +38,11 @@ export default function NavigationStepDrawer({
 }: NavigationStepDrawerProps) {
   const translateY = useRef(new Animated.Value(DRAWER_HEIGHT)).current;
 
-  // Fonction pour fermer avec vibration
   const handleCloseWithVibration = () => {
     Vibration.vibrate(50);
     onClose();
   };
 
-  // Animation logic
   useEffect(() => {
     if (visible) {
       Animated.spring(translateY, {
@@ -110,9 +108,9 @@ export default function NavigationStepDrawer({
   };
 
   const getManeuverColor = (): string => {
-    if (isCompletedStep) return '#4CAF50'; // Vert pour étapes complétées
-    if (isCurrentStep) return '#007AFF'; // Bleu pour étape actuelle
-    return '#666'; // Gris pour étapes futures
+    if (isCompletedStep) return '#4CAF50';
+    if (isCurrentStep) return '#007AFF';
+    return '#666';
   };
 
   const getStepStatus = (): string => {
@@ -159,7 +157,7 @@ export default function NavigationStepDrawer({
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.stepContainer}>
-          {/* En-tête avec icône de manoeuvre */}
+          {}
           <View style={styles.stepHeader}>
             <View style={[styles.maneuverIconContainer, { backgroundColor: getManeuverColor() + '20' }]}>
               <Icon 
@@ -178,12 +176,12 @@ export default function NavigationStepDrawer({
             </View>
           </View>
 
-          {/* Instruction principale */}
+          {}
           <View style={styles.instructionContainer}>
             <Text style={styles.instruction}>{step.instruction}</Text>
           </View>
 
-          {/* Détails de l'étape */}
+          {}
           <View style={styles.detailsContainer}>
             {step.streetName && (
               <View style={styles.detailRow}>
@@ -222,13 +220,13 @@ export default function NavigationStepDrawer({
             </View>
           </View>
 
-          {/* Manoeuvre détaillée */}
+          {}
           <View style={styles.maneuverContainer}>
             <Text style={styles.maneuverTitle}>Type de manoeuvre:</Text>
             <Text style={styles.maneuverText}>{step.maneuver}</Text>
           </View>
 
-          {/* Indicateur de progression */}
+          {}
           <View style={styles.progressContainer}>
             <Text style={styles.progressTitle}>Progression de l'itinéraire</Text>
             <View style={styles.progressBar}>
@@ -408,3 +406,4 @@ const styles = StyleSheet.create({
 });
 
 export { NavigationStepDrawer };
+

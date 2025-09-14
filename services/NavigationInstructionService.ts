@@ -21,7 +21,6 @@ export interface Lane {
 
 export class NavigationInstructionService {
   
-  // Configuration des seuils d'angle pour une meilleure précision
   private static readonly ANGLE_THRESHOLDS = {
     STRAIGHT: 10,
     SLIGHT_TURN: 30,
@@ -30,7 +29,6 @@ export class NavigationInstructionService {
     UTURN: 170
   };
 
-  // Mots-clés pour détecter les types de routes
   private static readonly ROAD_KEYWORDS = {
     HIGHWAY: ['autoroute', 'highway', 'a1', 'a2', 'a3', 'a4', 'a5', 'a6', 'a7', 'a8', 'a9'],
     TUNNEL: ['tunnel', 'souterrain'],
@@ -39,7 +37,6 @@ export class NavigationInstructionService {
     RAMP: ['bretelle', 'sortie', 'entrée', 'ramp', 'exit']
   };
 
-  // Générer l'instruction pour rejoindre la route avec plus de contexte
   static generateJoinRouteInstruction(
     roadName?: string, 
     distance?: number,
@@ -62,7 +59,6 @@ export class NavigationInstructionService {
     };
   }
 
-  // Méthode principale améliorée avec plus de contexte
   static generateInstructionFromStep(
     step: NavigationStep, 
     nextStep?: NavigationStep,
@@ -71,7 +67,6 @@ export class NavigationInstructionService {
     currentIndex: number = 0
   ): NavigationInstruction {
     
-    // Si c'est la première étape et que l'utilisateur n'est pas sur la route
     if (isFirstStep && !userOnRoute) {
       return this.generateJoinRouteInstruction(
         step.streetName, 
@@ -80,13 +75,11 @@ export class NavigationInstructionService {
       );
     }
 
-    // Détecter les types spéciaux de manœuvres
     const specialInstruction = this.detectSpecialManeuver(step, nextStep);
     if (specialInstruction) {
       return specialInstruction;
     }
 
-    // PRIORITÉ 1: Utiliser le modifier OSRM (le plus fiable)
     const osrmModifier = (step as any).osrmModifier;
     if (osrmModifier) {
 const maneuverType = this.convertOSRMModifierToType(step.maneuver, osrmModifier);
@@ -99,7 +92,6 @@ const maneuverType = this.convertOSRMModifierToType(step.maneuver, osrmModifier)
       );
     }
 
-    // PRIORITÉ 2: Utiliser le manœuvre original
     if (step.maneuver && step.maneuver !== 'straight' && step.maneuver !== 'continue') {
 const originalType = this.convertOriginalManeuverToType(step.maneuver);
       if (originalType !== 'straight') {
@@ -113,7 +105,6 @@ const originalType = this.convertOriginalManeuverToType(step.maneuver);
       }
     }
 
-    // PRIORITÉ 3: Calculer l'angle avec une méthode améliorée
     let turnAngle = 0;
     if (nextStep && step.coordinates && nextStep.coordinates) {
       turnAngle = this.calculateTurnAngleImproved(step.coordinates, nextStep.coordinates);
@@ -130,7 +121,6 @@ const originalType = this.convertOriginalManeuverToType(step.maneuver);
     );
   }
 
-  // Détecter les manœuvres spéciales (nouveauté)
   private static detectSpecialManeuver(
     step: NavigationStep, 
     nextStep?: NavigationStep
@@ -138,7 +128,6 @@ const originalType = this.convertOriginalManeuverToType(step.maneuver);
     const streetName = step.streetName?.toLowerCase() || '';
     const maneuver = step.maneuver?.toLowerCase() || '';
     
-    // Ferry
     if (this.containsKeywords(streetName, this.ROAD_KEYWORDS.FERRY) || 
         maneuver.includes('ferry')) {
       return {
@@ -150,7 +139,6 @@ const originalType = this.convertOriginalManeuverToType(step.maneuver);
       };
     }
 
-    // Bretelle d'autoroute
     if (this.containsKeywords(streetName, this.ROAD_KEYWORDS.RAMP) || 
         maneuver.includes('ramp') || maneuver.includes('on-ramp') || maneuver.includes('off-ramp')) {
       const isExit = maneuver.includes('off') || streetName.includes('sortie');
@@ -165,7 +153,6 @@ const originalType = this.convertOriginalManeuverToType(step.maneuver);
       };
     }
 
-    // Point de passage (waypoint)
     if (maneuver.includes('waypoint') || maneuver.includes('via')) {
       return {
         text: `Passez par ${step.streetName || 'le point de passage'}`,
@@ -176,7 +163,6 @@ const originalType = this.convertOriginalManeuverToType(step.maneuver);
       };
     }
 
-    // Changement de voie
     if (maneuver.includes('lane') && (maneuver.includes('change') || maneuver.includes('keep'))) {
       const direction = maneuver.includes('left') ? 'gauche' : 'droite';
       return {
@@ -191,48 +177,39 @@ const originalType = this.convertOriginalManeuverToType(step.maneuver);
     return null;
   }
 
-  // Méthode améliorée pour calculer l'angle de virage
   private static calculateTurnAngleImproved(currentCoords: number[], nextCoords: number[]): number {
     if (!currentCoords || !nextCoords || currentCoords.length < 4 || nextCoords.length < 4) {
       return 0;
     }
 
-    // Prendre plusieurs points pour une meilleure précision
     const currentLength = currentCoords.length;
     const nextLength = nextCoords.length;
     
-    // Points de fin du segment actuel
     const p1 = [currentCoords[currentLength - 4], currentCoords[currentLength - 3]];
     const p2 = [currentCoords[currentLength - 2], currentCoords[currentLength - 1]];
     
-    // Points de début du segment suivant
     const p3 = [nextCoords[0], nextCoords[1]];
     const p4 = [nextCoords[2], nextCoords[3]];
 
-    // Calculer les vecteurs directionnels
     const v1 = this.normalizeVector([p2[0] - p1[0], p2[1] - p1[1]]);
     const v2 = this.normalizeVector([p4[0] - p3[0], p4[1] - p3[1]]);
 
-    // Calculer l'angle avec une meilleure précision
     const dot = v1[0] * v2[0] + v1[1] * v2[1];
     const det = v1[0] * v2[1] - v1[1] * v2[0];
     
     let angle = Math.atan2(det, dot) * (180 / Math.PI);
     
-    // Normaliser l'angle entre -180 et 180
     while (angle > 180) angle -= 360;
     while (angle < -180) angle += 360;
 return angle;
   }
 
-  // Normaliser un vecteur
   private static normalizeVector(vector: number[]): number[] {
     const magnitude = Math.sqrt(vector[0] * vector[0] + vector[1] * vector[1]);
     if (magnitude === 0) return [0, 0];
     return [vector[0] / magnitude, vector[1] / magnitude];
   }
 
-  // Analyse améliorée du type de virage
   private static analyzeTurnTypeImproved(
     angle: number, 
     currentStreet?: string, 
@@ -240,9 +217,7 @@ return angle;
   ): string {
     const absAngle = Math.abs(angle);
     
-    // Cas spéciaux basés sur les noms de rues
     if (currentStreet && nextStreet) {
-      // Si on reste sur la même rue, privilégier "continuer"
       if (this.isSameStreet(currentStreet, nextStreet) && absAngle < this.ANGLE_THRESHOLDS.SLIGHT_TURN) {
         return 'straight';
       }
@@ -270,7 +245,6 @@ return angle;
     return isLeft ? 'sharp-left' : 'sharp-right';
   }
 
-  // Vérifier si deux noms de rue sont similaires
   private static isSameStreet(street1: string, street2: string): boolean {
     const normalize = (str: string) => str.toLowerCase()
       .replace(/\b(rue|avenue|boulevard|place|square|road|street|drive)\b/g, '')
@@ -280,7 +254,6 @@ return angle;
     return normalize(street1) === normalize(street2);
   }
 
-  // Méthode améliorée pour générer les instructions
   private static generateInstructionFromManeuver(
     maneuverType: string, 
     streetName?: string,
@@ -371,7 +344,6 @@ return angle;
     }
   }
 
-  // Obtenir un préfixe basé sur le type de route
   private static getRoadTypePrefix(streetName?: string): string {
     if (!streetName) return '';
     
@@ -390,7 +362,6 @@ return angle;
     return '';
   }
 
-  // Parser amélioré des manœuvres originales
   private static parseOriginalManeuver(
     maneuver: string, 
     streetName?: string,
@@ -455,9 +426,7 @@ return angle;
     };
   }
 
-  // Nouvelles méthodes utilitaires
 
-  // Formater la distance de manière lisible
   private static formatDistance(distance: number): string {
     if (distance < 1000) {
       return `${Math.round(distance)} m`;
@@ -466,7 +435,6 @@ return angle;
     }
   }
 
-  // Calculer le relèvement (bearing) à partir des coordonnées
   private static calculateBearing(coordinates?: number[]): number | undefined {
     if (!coordinates || coordinates.length < 4) return undefined;
     
@@ -481,7 +449,6 @@ return angle;
     return (bearing + 360) % 360;
   }
 
-  // Obtenir la direction cardinale
   private static getCardinalDirection(bearing: number): string {
     const directions = [
       { min: 337.5, max: 360, text: ' vers le nord' },
@@ -499,14 +466,11 @@ return angle;
     return direction?.text || '';
   }
 
-  // Vérifier si une chaîne contient des mots-clés
   private static containsKeywords(text: string, keywords: string[]): boolean {
     return keywords.some(keyword => text.includes(keyword));
   }
 
-  // Convertir les modificateurs OSRM (amélioré)
   private static convertOSRMModifierToType(originalManeuver: string, osrmModifier: string): string {
-    // Gestion des cas spéciaux
     if (originalManeuver.includes('roundabout')) {
       return 'roundabout';
     }
@@ -533,7 +497,6 @@ return angle;
     }
   }
 
-  // Méthode existante améliorée pour les ordinaux
   private static getOrdinalNumber(num: number): string {
     switch (num) {
       case 1: return 'première';
@@ -550,7 +513,6 @@ return angle;
     }
   }
 
-  // Emojis étendus
   static getEmojiFromIcon(icon: string): string {
     const emojiMap: Record<string, string> = {
       'straight': '↑',
@@ -577,11 +539,9 @@ return angle;
     return emojiMap[icon] || '🧭';
   }
 
-  // Méthodes existantes conservées...
   private static convertOriginalManeuverToType(originalManeuver: string): string {
     const lowerManeuver = originalManeuver.toLowerCase();
     
-    // Gestion étendue des manœuvres
     const maneuverMap: Record<string, string> = {
       'turn-left': 'left',
       'left': 'left',
@@ -613,7 +573,6 @@ return angle;
     return 'straight';
   }
 
-  // Conservation des méthodes existantes pour la compatibilité
   static isUserOnRoute(
     userLocation: { latitude: number; longitude: number },
     routeCoordinates: number[],
@@ -701,28 +660,23 @@ return angle;
 
     steps.forEach((step, index) => {
       if (step.coordinates && step.coordinates.length >= 2) {
-        // Calculer la distance minimale à toute la géométrie de l'étape
         let stepMinDistance = Infinity;
         
-        // Vérifier le point de début de l'étape
         const stepStart = {
           latitude: step.coordinates[1],
           longitude: step.coordinates[0]
         };
         
-        // Vérifier le point de fin de l'étape  
         const stepEnd = {
           latitude: step.coordinates[step.coordinates.length - 1],
           longitude: step.coordinates[step.coordinates.length - 2]
         };
         
-        // Si l'étape a plus de coordonnées, vérifier quelques points intermédiaires
         const distanceToStart = this.haversineDistance(userLocation, stepStart);
         const distanceToEnd = this.haversineDistance(userLocation, stepEnd);
         
         stepMinDistance = Math.min(distanceToStart, distanceToEnd);
         
-        // Pour les étapes longues, vérifier aussi quelques points intermédiaires
         if (step.coordinates.length > 4) {
           const midIndex = Math.floor((step.coordinates.length - 2) / 2);
           const stepMid = {
@@ -733,7 +687,6 @@ return angle;
           stepMinDistance = Math.min(stepMinDistance, distanceToMid);
         }
         
-        // Cette étape est-elle la plus proche trouvée jusqu'à présent ?
         if (stepMinDistance < minDistance) {
           minDistance = stepMinDistance;
           closestIndex = index;

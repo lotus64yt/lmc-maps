@@ -1,5 +1,3 @@
-// Déclarations de types globales pour résoudre les erreurs TypeScript
-
 declare module '@babel/traverse' {
   const traverse: any;
   export default traverse;

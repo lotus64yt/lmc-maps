@@ -14,7 +14,6 @@ export const LastTripStorage = {
     try {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(trip));
     } catch (e) {
-      console.warn('Erreur sauvegarde trajet:', e);
     }
   },
   async load(): Promise<LastTripData | null> {
@@ -31,3 +30,4 @@ export const LastTripStorage = {
     } catch {}
   }
 };
+
